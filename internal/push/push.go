@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
@@ -71,7 +70,7 @@ func Package(ctx context.Context, target oras.Target, packageDir string) (*ocisp
 		Digest:    digest.FromBytes(readmeData),
 		Size:      int64(len(readmeData)),
 	}
-	readmeBytesPushed, err := pushIfNotExist(ctx, target, readmeDesc, bytes.NewReader(readmeData))
+	readmeBytesPushed, err := pushIfNotExist(ctx, target, readmeDesc, io.NopCloser(bytes.NewReader(readmeData)), nil)
 	bytesPushed += readmeBytesPushed
 	if err != nil {
 		return nil, bytesPushed, err
@@ -86,7 +85,7 @@ func Package(ctx context.Context, target oras.Target, packageDir string) (*ocisp
 		Digest:    digest.FromBytes(iconData),
 		Size:      int64(len(iconData)),
 	}
-	iconBytesPushed, err := pushIfNotExist(ctx, target, iconDesc, bytes.NewReader(iconData))
+	iconBytesPushed, err := pushIfNotExist(ctx, target, iconDesc, io.NopCloser(bytes.NewReader(iconData)), nil)
 	bytesPushed += iconBytesPushed
 	if err != nil {
 		return nil, bytesPushed, err
@@ -101,7 +100,7 @@ func Package(ctx context.Context, target oras.Target, packageDir string) (*ocisp
 		Digest:    digest.FromBytes(properties),
 		Size:      int64(len(properties)),
 	}
-	propertiesBytesPushed, err := pushIfNotExist(ctx, target, propertiesDesc, bytes.NewReader(properties))
+	propertiesBytesPushed, err := pushIfNotExist(ctx, target, propertiesDesc, io.NopCloser(bytes.NewReader(properties)), nil)
 	bytesPushed += propertiesBytesPushed
 	if err != nil {
 		return nil, bytesPushed, err
@@ -134,12 +133,9 @@ func Package(ctx context.Context, target oras.Target, packageDir string) (*ocisp
 		Size:         int64(len(artifact)),
 		Annotations:  map[string]string{"artifactType": v0.MediaTypeCNCFOperatorFrameworkPackageV0},
 	}
-	artifactBytesPushed, err := pushIfNotExist(ctx, target, artifactDesc, bytes.NewReader(artifact))
+	artifactBytesPushed, err := pushIfNotExist(ctx, target, artifactDesc, io.NopCloser(bytes.NewReader(artifact)), tag("package"))
 	bytesPushed += artifactBytesPushed
 	if err != nil {
-		return nil, bytesPushed, err
-	}
-	if err := tag(ctx, target, artifactDesc, "package"); err != nil {
 		return nil, bytesPushed, err
 	}
 	return &artifactDesc, bytesPushed, nil
@@ -190,7 +186,7 @@ func Channel(ctx context.Context, target oras.Target, channelDir, channelName st
 		Digest:    digest.FromBytes(entriesYAML),
 		Size:      int64(len(entriesYAML)),
 	}
-	entriesBytesPushed, err := pushIfNotExist(ctx, target, entriesDesc, bytes.NewReader(entriesYAML))
+	entriesBytesPushed, err := pushIfNotExist(ctx, target, entriesDesc, io.NopCloser(bytes.NewReader(entriesYAML)), nil)
 	bytesPushed += entriesBytesPushed
 	if err != nil {
 		return nil, bytesPushed, err
@@ -206,7 +202,7 @@ func Channel(ctx context.Context, target oras.Target, channelDir, channelName st
 		Size:      int64(len(properties)),
 	}
 
-	propertyBytesPushed, err := pushIfNotExist(ctx, target, propertiesDesc, bytes.NewReader(properties))
+	propertyBytesPushed, err := pushIfNotExist(ctx, target, propertiesDesc, io.NopCloser(bytes.NewReader(properties)), nil)
 	bytesPushed += propertyBytesPushed
 	if err != nil {
 		return nil, bytesPushed, err
@@ -239,12 +235,9 @@ func Channel(ctx context.Context, target oras.Target, channelDir, channelName st
 		Size:         int64(len(artifact)),
 		Annotations:  map[string]string{"artifactType": v0.MediaTypeCNCFOperatorFrameworkChannelV0},
 	}
-	artifactBytesPushed, err := pushIfNotExist(ctx, target, artifactDesc, bytes.NewReader(artifact))
+	artifactBytesPushed, err := pushIfNotExist(ctx, target, artifactDesc, io.NopCloser(bytes.NewReader(artifact)), tag(fmt.Sprintf("channel.%s", channelName)))
 	bytesPushed += artifactBytesPushed
 	if err != nil {
-		return nil, bytesPushed, err
-	}
-	if err := tag(ctx, target, artifactDesc, fmt.Sprintf("channel.%s", channelName)); err != nil {
 		return nil, bytesPushed, err
 	}
 	return &artifactDesc, bytesPushed, nil
@@ -291,7 +284,7 @@ func Bundle(ctx context.Context, target oras.Target, bundleDir, version string) 
 		Digest:    digest.FromBytes(bundleContent.Bytes()),
 		Size:      int64(bundleContent.Len()),
 	}
-	contentBytesPushed, err := pushIfNotExist(ctx, target, bundleContentDesc, bundleContent)
+	contentBytesPushed, err := pushIfNotExist(ctx, target, bundleContentDesc, io.NopCloser(bundleContent), nil)
 	bytesPushed += contentBytesPushed
 	if err != nil {
 		return nil, bytesPushed, err
@@ -306,7 +299,7 @@ func Bundle(ctx context.Context, target oras.Target, bundleDir, version string) 
 		Digest:    digest.FromBytes(properties),
 		Size:      int64(len(properties)),
 	}
-	propertiesBytesPushed, err := pushIfNotExist(ctx, target, propertiesDesc, bytes.NewReader(properties))
+	propertiesBytesPushed, err := pushIfNotExist(ctx, target, propertiesDesc, io.NopCloser(bytes.NewReader(properties)), nil)
 	bytesPushed += propertiesBytesPushed
 	if err != nil {
 		return nil, bytesPushed, err
@@ -321,7 +314,7 @@ func Bundle(ctx context.Context, target oras.Target, bundleDir, version string) 
 		Digest:    digest.FromBytes(constraints),
 		Size:      int64(len(constraints)),
 	}
-	constraintsBytesPushed, err := pushIfNotExist(ctx, target, constraintsDesc, bytes.NewReader(constraints))
+	constraintsBytesPushed, err := pushIfNotExist(ctx, target, constraintsDesc, io.NopCloser(bytes.NewReader(constraints)), nil)
 	bytesPushed += constraintsBytesPushed
 	if err != nil {
 		return nil, bytesPushed, err
@@ -354,15 +347,22 @@ func Bundle(ctx context.Context, target oras.Target, bundleDir, version string) 
 		Size:         int64(len(artifact)),
 		Annotations:  map[string]string{"artifactType": v0.MediaTypeCNCFOperatorFrameworkBundleV0},
 	}
-	artifactBytesPushed, err := pushIfNotExist(ctx, target, artifactDesc, bytes.NewReader(artifact))
+
+	artifactBytesPushed, err := pushIfNotExist(ctx, target, artifactDesc, io.NopCloser(bytes.NewReader(artifact)), tag(fmt.Sprintf("bundle.%s", version)))
 	bytesPushed += artifactBytesPushed
 	if err != nil {
 		return nil, bytesPushed, err
 	}
-	if err := tag(ctx, target, artifactDesc, fmt.Sprintf("bundle.%s", version)); err != nil {
-		return nil, bytesPushed, err
-	}
 	return &artifactDesc, bytesPushed, nil
+}
+
+type tag string
+
+func (t tag) String() string {
+	return t.Tag()
+}
+func (t tag) Tag() string {
+	return string(t)
 }
 
 func pushImageRef(ctx context.Context, target oras.Target, imageName, imageRef string) (*ocispec.Descriptor, int64, error) {
@@ -371,43 +371,33 @@ func pushImageRef(ctx context.Context, target oras.Target, imageName, imageRef s
 		return nil, 0, err
 	}
 
-	copyBytes, err := copy.Descriptor(ctx, src, target, *desc)
+	if nt, ok := ref.(reference.NamedTagged); ok {
+		ref, err = reference.WithTag(nt, fmt.Sprintf("image.%s.%s", imageName, nt.Tag()))
+		if err != nil {
+			return nil, 0, err
+		}
+	}
+
+	copyBytes, err := copy.Descriptor(ctx, target, src, *desc, ref)
 	if err != nil {
 		return nil, copyBytes, err
 	}
 
-	if t, ok := ref.(reference.Tagged); ok {
-		if err := tag(ctx, target, *desc, fmt.Sprintf("image.%s.%s", imageName, t.Tag())); err != nil {
-			return nil, copyBytes, err
-		}
-	}
 	return desc, copyBytes, nil
 }
 
-func pushIfNotExist(ctx context.Context, target oras.Target, d ocispec.Descriptor, blob io.Reader) (int64, error) {
-	typ := util.TypeForDescriptor(d)
-	exists, err := target.Exists(ctx, d)
-	if err != nil {
-		return 0, err
-	}
-	if exists {
-		log.Printf("skipping %q with digest %q: already exists in repo", typ, d.Digest)
-		return 0, nil
-	}
-	log.Printf("pushing %q with digest %q", typ, d.Digest)
-	if err := target.Push(ctx, d, blob); err != nil {
-		return 0, fmt.Errorf("failed pushing %q with digest %q: %v", typ, d.Digest, err)
-	}
-	return d.Size, nil
+type singleUseStore struct {
+	desc   ocispec.Descriptor
+	reader io.ReadCloser
 }
 
-func tag(ctx context.Context, target oras.Target, desc ocispec.Descriptor, tag string) error {
-	typ := util.TypeForDescriptor(desc)
-	log.Printf("tagging %q with digest %q as %q", typ, desc.Digest, tag)
-	if err := target.Tag(ctx, desc, tag); err != nil {
-		return fmt.Errorf("failed tagging %q with digest %q as %q", typ, desc.Digest, tag)
-	}
-	return nil
+func (s *singleUseStore) Fetch(_ context.Context, d ocispec.Descriptor) (io.ReadCloser, error) {
+	return s.reader, nil
+}
+
+func pushIfNotExist(ctx context.Context, target oras.Target, d ocispec.Descriptor, blob io.ReadCloser, ref reference.Reference) (int64, error) {
+	s := &singleUseStore{d, blob}
+	return copy.Descriptor(ctx, target, s, d, ref)
 }
 
 func tarDirectory(root string, w io.Writer) (err error) {

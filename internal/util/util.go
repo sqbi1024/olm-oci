@@ -6,7 +6,9 @@ import (
 
 	"github.com/docker/distribution/reference"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
-	"oras.land/oras-go/v2/registry/remote"
+	orasremote "oras.land/oras-go/v2/registry/remote"
+
+	"github.com/joelanford/olm-oci/internal/remote"
 )
 
 func TypeForDescriptor(d ocispec.Descriptor) string {
@@ -26,13 +28,21 @@ func TagOrDigest(ref reference.Reference) (string, error) {
 	return "", fmt.Errorf("reference is not tagged or digested")
 }
 
-func ResolveNameAndReference(ctx context.Context, nameAndReference string) (*remote.Repository, reference.Reference, *ocispec.Descriptor, error) {
-	ref, err := reference.ParseNormalizedNamed(nameAndReference)
+func ParseNameAndReference(nameAndReference string) (*orasremote.Repository, reference.Named, error) {
+	ref, err := reference.ParseNamed(nameAndReference)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, err
 	}
 
 	repo, err := remote.NewRepository(ref.Name())
+	if err != nil {
+		return nil, nil, err
+	}
+	return repo, ref, nil
+}
+
+func ResolveNameAndReference(ctx context.Context, nameAndReference string) (*orasremote.Repository, reference.Reference, *ocispec.Descriptor, error) {
+	repo, ref, err := ParseNameAndReference(nameAndReference)
 	if err != nil {
 		return nil, nil, nil, err
 	}
