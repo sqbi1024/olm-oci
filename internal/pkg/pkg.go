@@ -1,7 +1,6 @@
 package pkg
 
 import (
-	"archive/tar"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -14,7 +13,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/blang/semver/v4"
 	"github.com/opencontainers/go-digest"
@@ -25,6 +23,7 @@ import (
 
 	"github.com/joelanford/olm-oci/internal/client"
 	"github.com/joelanford/olm-oci/internal/json"
+	"github.com/joelanford/olm-oci/internal/tar"
 )
 
 const (
@@ -50,9 +49,9 @@ const (
 )
 
 var (
-	_ client.Index = &Package{}
-	_ client.Index = &Channel{}
-	_ client.Index = &Bundle{}
+	_ client.Artifact = &Package{}
+	_ client.Artifact = &Channel{}
+	_ client.Artifact = &Bundle{}
 
 	_ client.Blob = &PackageMetadata{}
 	_ client.Blob = Description("")
@@ -403,8 +402,8 @@ func (p Package) Annotations() map[string]string {
 	return map[string]string{AnnotationKeyName: p.Metadata.Name}
 }
 
-func (p Package) SubIndices() []client.Index {
-	var indices []client.Index
+func (p Package) SubIndices() []client.Artifact {
+	var indices []client.Artifact
 	for _, ch := range p.Channels {
 		indices = append(indices, ch)
 	}
@@ -506,8 +505,8 @@ func (c Channel) Annotations() map[string]string {
 	return map[string]string{AnnotationKeyName: c.Metadata.Name}
 }
 
-func (c Channel) SubIndices() []client.Index {
-	var indices []client.Index
+func (c Channel) SubIndices() []client.Artifact {
+	var indices []client.Artifact
 	for _, b := range c.Bundles {
 		indices = append(indices, b)
 	}
@@ -556,7 +555,7 @@ func (b Bundle) Annotations() map[string]string {
 	}
 }
 
-func (b Bundle) SubIndices() []client.Index {
+func (b Bundle) SubIndices() []client.Artifact {
 	return nil
 }
 
@@ -572,6 +571,7 @@ func (b Bundle) Blobs() []client.Blob {
 }
 
 type BundleMetadata struct {
+	Package string         `json:"package"`
 	Version semver.Version `json:"version"`
 	Release uint           `json:"release"`
 }
@@ -599,7 +599,9 @@ func (bc BundleContent) MediaType() string {
 
 func (bc BundleContent) Data() (io.ReadCloser, error) {
 	buf := bytes.NewBuffer(nil)
-	if err := tarGzipFS(bc.FS, buf); err != nil {
+	gzw := gzip.NewWriter(buf)
+	defer gzw.Close()
+	if err := tar.WriteFS(bc.FS, gzw); err != nil {
 		return nil, fmt.Errorf("error creating bundle content: %w", err)
 	}
 	return io.NopCloser(buf), nil
@@ -636,74 +638,6 @@ func (tv TypeValues) Data() (io.ReadCloser, error) {
 		return nil, err
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
-}
-
-func tarGzipFS(fsys fs.FS, w io.Writer) (returnErr error) {
-	gzw := gzip.NewWriter(w)
-	tw := tar.NewWriter(gzw)
-	defer func() {
-		for _, f := range []io.Closer{tw, gzw} {
-			if err := f.Close(); err != nil && returnErr == nil {
-				returnErr = err
-				return
-			}
-		}
-	}()
-
-	return fs.WalkDir(fsys, ".", func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-
-		path = filepath.ToSlash(path)
-
-		// Generate header
-		mode := info.Mode()
-		if mode&os.ModeSymlink != 0 {
-			return fmt.Errorf("symlinks are not supported: %s", path)
-		}
-		header, err := tar.FileInfoHeader(info, "")
-		if err != nil {
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		header.Name = path
-		header.Uid = 0
-		header.Gid = 0
-		header.Uname = ""
-		header.Gname = ""
-
-		header.ModTime = time.Time{}
-		header.AccessTime = time.Time{}
-		header.ChangeTime = time.Time{}
-
-		// Write file
-		if err := tw.WriteHeader(header); err != nil {
-			return fmt.Errorf("tar: %w", err)
-		}
-		if mode.IsRegular() {
-			fp, err := fsys.Open(path)
-			if err != nil {
-				return err
-			}
-			defer func() {
-				closeErr := fp.Close()
-				if returnErr == nil {
-					returnErr = closeErr
-				}
-			}()
-
-			if _, err := io.Copy(tw, fp); err != nil {
-				return fmt.Errorf("failed to copy to %s: %w", path, err)
-			}
-		}
-
-		return nil
-	})
 }
 
 func convertTypeValues(in []TypeValue) []property.Property {
@@ -804,7 +738,7 @@ func (p Package) ToFBC(ctx context.Context, repo, defaultChannel string) (*declc
 
 func (b Bundle) getDigest(ctx context.Context) (digest.Digest, error) {
 	st := memory.New()
-	desc, err := client.DefaultClient.PushToRepo(ctx, b, st)
+	desc, err := client.Push(ctx, b, st)
 	if err != nil {
 		return "", err
 	}

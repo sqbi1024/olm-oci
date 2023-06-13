@@ -20,6 +20,7 @@ func main() {
 		Short: "Operate on OLM OCI artifacts",
 	}
 	c.AddCommand(
+		cli.NewBuildCommand(),
 		cli.NewInspectCommand(),
 		cli.NewPushCommand(),
 		cli.NewSystemCommand(),

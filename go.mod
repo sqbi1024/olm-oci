@@ -14,17 +14,14 @@ require (
 	github.com/operator-framework/operator-registry v1.28.0
 	github.com/spf13/cobra v1.6.1
 	golang.org/x/sync v0.2.0
-	gopkg.in/yaml.v2 v2.4.0
-	oras.land/oras-go/v2 v2.0.0-rc.5
+	k8s.io/apimachinery v0.26.1
+	oras.land/oras-go/v2 v2.2.0
 )
 
 require (
 	github.com/BurntSushi/toml v1.2.0 // indirect
-	github.com/containers/libtrust v0.0.0-20200511145503-9c3a6c22cd9a // indirect
-	github.com/containers/ocicrypt v1.1.5 // indirect
 	github.com/containers/storage v1.43.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/docker/docker v20.10.24+incompatible // indirect
 	github.com/docker/docker-credential-helpers v0.7.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/go-git/gcfg v1.5.0 // indirect
@@ -64,10 +61,10 @@ require (
 	google.golang.org/protobuf v1.28.1 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools/v3 v3.4.0 // indirect
 	k8s.io/api v0.26.1 // indirect
-	k8s.io/apimachinery v0.26.1 // indirect
 	k8s.io/client-go v0.26.1 // indirect
 	k8s.io/klog/v2 v2.80.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20221012153701-172d655c2280 // indirect
