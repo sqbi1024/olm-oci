@@ -20,9 +20,9 @@ func main() {
 		Short: "Operate on OLM OCI artifacts",
 	}
 	c.AddCommand(
-		cli.NewCopyCommand(),
-		cli.NewFetchCommand(),
+		cli.NewInspectCommand(),
 		cli.NewPushCommand(),
+		cli.NewSystemCommand(),
 	)
 
 	if err := c.ExecuteContext(ctx); err != nil {

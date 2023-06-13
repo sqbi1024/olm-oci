@@ -11,7 +11,6 @@ func NewPushCommand() *cobra.Command {
 	}
 	cmd.AddCommand(
 		NewPushPackageCommand(),
-		NewPushChannelCommand(),
 		NewPushBundleCommand(),
 	)
 	return cmd

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/docker/distribution/reference"
+	"github.com/containers/image/v5/docker/reference"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	orasremote "oras.land/oras-go/v2/registry/remote"
 

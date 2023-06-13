@@ -1,4 +1,0 @@
-- name: rukpak
-  image: quay.io/operator-framework/rukpak:v0.11.0
-- name: kube-rbac-proxy
-  image: quay.io/brancz/kube-rbac-proxy:v0.12.0

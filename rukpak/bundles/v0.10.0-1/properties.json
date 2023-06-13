@@ -1,0 +1,18 @@
+[
+  {
+    "type": "olm.gvk",
+    "value": {
+      "group": "core.rukpak.io",
+      "version": "v1alpha1",
+      "kind": "Bundle"
+    }
+  },
+  {
+    "type": "olm.gvk",
+    "value": {
+      "group": "core.rukpak.io",
+      "version": "v1alpha1",
+      "kind": "BundleDeployment"
+    }
+  }
+]

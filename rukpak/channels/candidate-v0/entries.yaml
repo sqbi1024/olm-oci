@@ -1,4 +1,0 @@
-upgradeEdges:
-  - bundle: ghcr.io/joelanford/rukpak:rukpak.v0.11.0
-    replaces: ghcr.io/joelanford/rukpak:rukpak.v0.10.0
-  - bundle: ghcr.io/joelanford/rukpak:rukpak.v0.10.0

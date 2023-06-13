@@ -2,12 +2,11 @@ package cli
 
 import (
 	"log"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
 
-	"github.com/joelanford/olm-oci/internal/push"
-	"github.com/joelanford/olm-oci/internal/remote"
+	"github.com/joelanford/olm-oci/internal/client"
+	"github.com/joelanford/olm-oci/internal/pkg"
 )
 
 func NewPushBundleCommand() *cobra.Command {
@@ -18,13 +17,13 @@ func NewPushBundleCommand() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 			bundleDir := args[0]
 			targetRepo := args[1]
-			repo, err := remote.NewRepository(targetRepo)
+
+			b, err := pkg.LoadBundle(bundleDir)
 			if err != nil {
-				log.Fatal(err)
+				log.Fatalf("load bundle: %v", err)
 			}
-			_, size, err := push.Bundle(cmd.Context(), repo, bundleDir, filepath.Base(bundleDir))
-			log.Printf("total bytes pushed: %d", size)
-			if err != nil {
+
+			if _, err := client.DefaultClient.Push(cmd.Context(), b, targetRepo); err != nil {
 				log.Fatal(err)
 			}
 		},
