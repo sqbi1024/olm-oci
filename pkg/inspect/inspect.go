@@ -17,7 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"oras.land/oras-go/v2"
 
-	"github.com/joelanford/olm-oci/internal/pkg"
+	pkg "github.com/joelanford/olm-oci/api/v1"
 )
 
 func Inspect(ctx context.Context, repo oras.Target, desc ocispec.Descriptor) error {

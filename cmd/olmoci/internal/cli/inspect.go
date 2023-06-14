@@ -11,9 +11,9 @@ import (
 	"github.com/spf13/cobra"
 	"oras.land/oras-go/v2/content/oci"
 
-	"github.com/joelanford/olm-oci/internal/client"
-	"github.com/joelanford/olm-oci/internal/inspect"
-	"github.com/joelanford/olm-oci/internal/remote"
+	"github.com/joelanford/olm-oci/pkg/client"
+	"github.com/joelanford/olm-oci/pkg/inspect"
+	"github.com/joelanford/olm-oci/pkg/remote"
 )
 
 func NewInspectCommand() *cobra.Command {

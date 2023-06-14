@@ -23,7 +23,7 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
 
-	"github.com/joelanford/olm-oci/internal/progress"
+	"github.com/joelanford/olm-oci/pkg/progress"
 )
 
 type Artifact interface {

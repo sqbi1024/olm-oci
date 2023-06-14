@@ -9,9 +9,9 @@ import (
 	"github.com/spf13/cobra"
 	"oras.land/oras-go/v2/content/oci"
 
-	"github.com/joelanford/olm-oci/internal/client"
-	"github.com/joelanford/olm-oci/internal/pkg"
-	"github.com/joelanford/olm-oci/internal/tar"
+	pkg "github.com/joelanford/olm-oci/api/v1"
+	"github.com/joelanford/olm-oci/pkg/client"
+	"github.com/joelanford/olm-oci/pkg/tar"
 )
 
 func NewBuildBundleCommand() *cobra.Command {

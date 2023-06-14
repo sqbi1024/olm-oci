@@ -7,9 +7,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/joelanford/olm-oci/internal/client"
-	"github.com/joelanford/olm-oci/internal/pkg"
-	"github.com/joelanford/olm-oci/internal/remote"
+	pkg "github.com/joelanford/olm-oci/api/v1"
+	"github.com/joelanford/olm-oci/pkg/client"
+	"github.com/joelanford/olm-oci/pkg/remote"
 )
 
 func NewPushBundleCommand() *cobra.Command {

@@ -1,4 +1,4 @@
-package pkg
+package v1
 
 import (
 	"bytes"
@@ -26,8 +26,8 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 	"sigs.k8s.io/yaml"
 
-	"github.com/joelanford/olm-oci/internal/client"
-	"github.com/joelanford/olm-oci/internal/tar"
+	"github.com/joelanford/olm-oci/pkg/client"
+	"github.com/joelanford/olm-oci/pkg/tar"
 )
 
 const (
