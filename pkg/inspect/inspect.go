@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"regexp"
 	"strings"
 
 	"github.com/docker/distribution/manifest/manifestlist"
@@ -42,40 +41,9 @@ func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, inde
 	defer rc.Close()
 
 	switch d.MediaType {
-	case pkg.MediaTypeUpgradeEdges:
-		data, err := io.ReadAll(rc)
-		if err != nil {
-			return err
-		}
-		var edges pkg.UpgradeEdges
-		if err := yaml.Unmarshal(data, &edges); err != nil {
-			return err
-		}
-		fmt.Printf("%s  Upgrade Edges:\n", indent)
-		for from, to := range edges {
-			fmt.Printf("%s    - From: %s\n", indent, from)
-			fmt.Printf("%s      To: %s\n", indent, strings.Join(to, ", "))
-		}
-	case pkg.MediaTypeRelatedImages:
-		data, err := io.ReadAll(rc)
-		if err != nil {
-			return err
-		}
-		var relatedImages pkg.RelatedImages
-		if err := yaml.Unmarshal(data, &relatedImages); err != nil {
-			return err
-		}
-		fmt.Printf("%s  Related Images:\n", indent)
-		for _, image := range relatedImages {
-			fmt.Printf("%s    - Image: %s\n", indent, image.Image)
-			if image.Name != "" {
-				fmt.Printf("%s      Name: %s\n", indent, image.Name)
-			}
-		}
-
 	case ocispec.MediaTypeArtifactManifest:
-		var a ocispec.Artifact
-		if err := json.NewDecoder(rc).Decode(&a); err != nil {
+		a, err := DecodeArtifact(rc)
+		if err != nil {
 			return err
 		}
 		fmt.Printf("%s  Artifact Type: %v\n", indent, a.ArtifactType)
@@ -87,12 +55,8 @@ func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, inde
 			}
 		}
 	case pkg.MediaTypePackageMetadata:
-		data, err := io.ReadAll(rc)
+		m, err := DecodePackageMetadata(rc)
 		if err != nil {
-			return err
-		}
-		var m pkg.PackageMetadata
-		if err := yaml.Unmarshal(data, &m); err != nil {
 			return err
 		}
 		fmt.Printf("%s  Package Metadata:\n", indent)
@@ -110,29 +74,43 @@ func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, inde
 			fmt.Printf("%s    Maintainers: %s\n", indent, m.Maintainers)
 		}
 	case pkg.MediaTypeChannelMetadata:
-		data, err := io.ReadAll(rc)
+		m, err := DecodeChannelMetadata(rc)
 		if err != nil {
-			return err
-		}
-		var m pkg.ChannelMetadata
-		if err := yaml.Unmarshal(data, &m); err != nil {
 			return err
 		}
 		fmt.Printf("%s  Channel Metadata:\n", indent)
 		fmt.Printf("%s    Name: %s\n", indent, m.Name)
 	case pkg.MediaTypeBundleMetadata:
-		data, err := io.ReadAll(rc)
+		m, err := DecodeBundleMetadata(rc)
 		if err != nil {
-			return err
-		}
-		var m pkg.BundleMetadata
-		if err := yaml.Unmarshal(data, &m); err != nil {
 			return err
 		}
 		fmt.Printf("%s  Bundle Metadata:\n", indent)
 		fmt.Printf("%s    Package: %s\n", indent, m.Package)
 		fmt.Printf("%s    Version: %s\n", indent, m.Version)
 		fmt.Printf("%s    Release: %d\n", indent, m.Release)
+	case pkg.MediaTypeUpgradeEdges:
+		edges, err := DecodeUpgradeEdges(rc)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s  Upgrade Edges:\n", indent)
+		for from, to := range edges {
+			fmt.Printf("%s    - From: %s\n", indent, from)
+			fmt.Printf("%s      To: %s\n", indent, strings.Join(to, ", "))
+		}
+	case pkg.MediaTypeRelatedImages:
+		relatedImages, err := DecodeRelatedImages(rc)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("%s  Related Images:\n", indent)
+		for _, image := range relatedImages {
+			fmt.Printf("%s    - Image: %s\n", indent, image.Image)
+			if image.Name != "" {
+				fmt.Printf("%s      Name: %s\n", indent, image.Name)
+			}
+		}
 	case pkg.MediaTypeBundleContent:
 		gzr, err := gzip.NewReader(rc)
 		if err != nil {
@@ -163,19 +141,29 @@ func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, inde
 			return err
 		}
 	case pkg.MediaTypeProperties:
-		data, err := io.ReadAll(rc)
+		properties, err := DecodeProperties(rc)
 		if err != nil {
-			return fmt.Errorf("read gzip: %v", err)
+			return err
 		}
-		fmt.Printf("%s  Properties:\n", indent)
-		fmt.Printf("%s\n", regexp.MustCompile("(?m)^").ReplaceAllString(string(data), fmt.Sprintf("%s    ", indent)))
+		if len(properties) > 0 {
+			fmt.Printf("%s  Properties:\n", indent)
+			for _, p := range properties {
+				fmt.Printf("%s    Type: %s\n", indent, p.Type)
+				fmt.Printf("%s    Value: %s\n", indent, string(p.Value))
+			}
+		}
 	case pkg.MediaTypeConstraints:
-		data, err := io.ReadAll(rc)
+		constraints, err := DecodeConstraints(rc)
 		if err != nil {
-			return fmt.Errorf("read gzip: %v", err)
+			return err
 		}
-		fmt.Printf("%s  Constraints:\n", indent)
-		fmt.Printf("%s\n", regexp.MustCompile("(?m)^").ReplaceAllString(string(data), fmt.Sprintf("%s    ", indent)))
+		if len(constraints) > 0 {
+			fmt.Printf("%s  Constraints:\n", indent)
+			for _, c := range constraints {
+				fmt.Printf("%s    Type: %s\n", indent, c.Type)
+				fmt.Printf("%s    Value: %s\n", indent, string(c.Value))
+			}
+		}
 	case ocispec.MediaTypeImageIndex:
 		var i ocispec.Index
 		if err := json.NewDecoder(rc).Decode(&i); err != nil {
@@ -337,4 +325,64 @@ func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, inde
 
 	}
 	return nil
+}
+
+func JSONDecode(r io.Reader, obj any) error {
+	return json.NewDecoder(r).Decode(&obj)
+}
+
+func YAMLDecode(r io.Reader, obj any) error {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	return yaml.Unmarshal(data, obj)
+}
+
+func DecodeArtifact(r io.Reader) (ocispec.Artifact, error) {
+	var a ocispec.Artifact
+	err := JSONDecode(r, &a)
+	return a, err
+}
+
+func DecodePackageMetadata(r io.Reader) (pkg.PackageMetadata, error) {
+	var v pkg.PackageMetadata
+	err := YAMLDecode(r, &v)
+	return v, err
+}
+
+func DecodeChannelMetadata(r io.Reader) (pkg.ChannelMetadata, error) {
+	var v pkg.ChannelMetadata
+	err := YAMLDecode(r, &v)
+	return v, err
+}
+
+func DecodeBundleMetadata(r io.Reader) (pkg.BundleMetadata, error) {
+	var v pkg.BundleMetadata
+	err := YAMLDecode(r, &v)
+	return v, err
+}
+
+func DecodeUpgradeEdges(r io.Reader) (pkg.UpgradeEdges, error) {
+	var v pkg.UpgradeEdges
+	err := YAMLDecode(r, &v)
+	return v, err
+}
+
+func DecodeRelatedImages(r io.Reader) (pkg.RelatedImages, error) {
+	var v pkg.RelatedImages
+	err := YAMLDecode(r, &v)
+	return v, err
+}
+
+func DecodeProperties(r io.Reader) (pkg.Properties, error) {
+	var v pkg.Properties
+	err := YAMLDecode(r, &v)
+	return v, err
+}
+
+func DecodeConstraints(r io.Reader) (pkg.Constraints, error) {
+	var v pkg.Constraints
+	err := YAMLDecode(r, &v)
+	return v, err
 }
