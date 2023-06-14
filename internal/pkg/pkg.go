@@ -27,10 +27,10 @@ import (
 )
 
 const (
-	AnnotationKeyArtifactType  = "io.operatorframework.artifact-type"
-	AnnotationKeyName          = "io.operatorframework.name"
-	AnnotationKeyBundleVersion = "io.operatorframework.bundle.version"
-	AnnotationKeyBundleRelease = "io.operatorframework.bundle.release"
+	AnnotationKeyName                   = "io.operatorframework.name"
+	AnnotationKeyBundleVersion          = "io.operatorframework.bundle.version"
+	AnnotationKeyBundleRelease          = "io.operatorframework.bundle.release"
+	AnnotationKeyBundleContentMediaType = "io.operatorframework.bundle.content.mediatype"
 
 	MediaTypePackage         = "application/vnd.cncf.operatorframework.olm.package.v1"
 	MediaTypePackageMetadata = "application/vnd.cncf.operatorframework.olm.package.metadata.v1+json"
@@ -41,6 +41,7 @@ const (
 
 	MediaTypeBundle                 = "application/vnd.cncf.operatorframework.olm.bundle.v1"
 	MediaTypeBundleMetadata         = "application/vnd.cncf.operatorframework.olm.bundle.metadata.v1+json"
+	MediaTypeBundleContent          = "application/vnd.cncf.operatorframework.olm.bundle.content.v1.tar+gzip"
 	MediaTypeBundleFormatPlainV0    = "application/vnd.cncf.operatorframework.olm.bundle.format.plain.v0.tar+gzip"
 	MediaTypeBundleFormatRegistryV1 = "application/vnd.cncf.operatorframework.olm.bundle.format.registry.v1.tar+gzip"
 
@@ -287,7 +288,7 @@ func LoadBundle(bundleDir string) (*Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error loading constraints: %w", err)
 	}
-	bundle.Content, err = loadContent(bundleDir)
+	bundle.ContentMediaType, bundle.Content, err = loadContent(bundleDir)
 	if err != nil {
 		return nil, fmt.Errorf("error loading content: %w", err)
 	}
@@ -305,7 +306,7 @@ func loadBundleMetadata(metadataFile string) (BundleMetadata, error) {
 	return metadata, err
 }
 
-func loadContent(bundleDir string) (BundleContent, error) {
+func loadContent(bundleDir string) (string, BundleContent, error) {
 	contentDir := filepath.Join(bundleDir, "content")
 	contentFS := os.DirFS(contentDir)
 
@@ -315,25 +316,25 @@ func loadContent(bundleDir string) (BundleContent, error) {
 		defer mediaTypeFile.Close()
 		mediaTypeBytes, err := io.ReadAll(mediaTypeFile)
 		if err != nil {
-			return BundleContent{}, err
+			return "", BundleContent{}, err
 		}
-		return BundleContent{MediaTyp: string(mediaTypeBytes), FS: os.DirFS(contentDir)}, nil
+		return string(mediaTypeBytes), BundleContent{FS: os.DirFS(contentDir)}, nil
 	}
 
 	entries, err := fs.ReadDir(contentFS, ".")
 	if err != nil {
-		return BundleContent{}, err
+		return "", BundleContent{}, err
 	}
 	if len(entries) == 1 && entries[0].IsDir() && entries[0].Name() == "manifests" {
-		return BundleContent{MediaTyp: MediaTypeBundleFormatPlainV0, FS: os.DirFS(contentDir)}, nil
+		return MediaTypeBundleFormatPlainV0, BundleContent{FS: os.DirFS(contentDir)}, nil
 	}
 
 	if len(entries) == 2 &&
 		entries[0].IsDir() && entries[0].Name() == "manifests" &&
 		entries[1].IsDir() && entries[1].Name() == "metadata" {
-		return BundleContent{MediaTyp: MediaTypeBundleFormatRegistryV1, FS: os.DirFS(contentDir)}, nil
+		return MediaTypeBundleFormatRegistryV1, BundleContent{FS: os.DirFS(contentDir)}, nil
 	}
-	return BundleContent{}, fmt.Errorf("unable to detect bundle content mediatype, create file %q containing the media type", mediaTypeFilePath)
+	return "", BundleContent{}, fmt.Errorf("unable to detect bundle content mediatype, create file %q containing the media type", mediaTypeFilePath)
 }
 
 func LoadChannel(channelDir string, bundles []Bundle) (*Channel, error) {
@@ -541,7 +542,9 @@ type Bundle struct {
 	Metadata    BundleMetadata
 	Properties  Properties
 	Constraints Constraints
-	Content     BundleContent
+
+	ContentMediaType string
+	Content          BundleContent
 }
 
 func (b Bundle) ArtifactType() string {
@@ -550,8 +553,9 @@ func (b Bundle) ArtifactType() string {
 
 func (b Bundle) Annotations() map[string]string {
 	return map[string]string{
-		AnnotationKeyBundleVersion: b.Metadata.Version.String(),
-		AnnotationKeyBundleRelease: fmt.Sprintf("%d", b.Metadata.Release),
+		AnnotationKeyBundleVersion:          b.Metadata.Version.String(),
+		AnnotationKeyBundleRelease:          fmt.Sprintf("%d", b.Metadata.Release),
+		AnnotationKeyBundleContentMediaType: b.ContentMediaType,
 	}
 }
 
@@ -589,12 +593,11 @@ func (bm BundleMetadata) Data() (io.ReadCloser, error) {
 }
 
 type BundleContent struct {
-	MediaTyp string
-	FS       fs.FS
+	FS fs.FS
 }
 
 func (bc BundleContent) MediaType() string {
-	return bc.MediaTyp
+	return MediaTypeBundleContent
 }
 
 func (bc BundleContent) Data() (io.ReadCloser, error) {

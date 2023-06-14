@@ -6,8 +6,11 @@ require (
 	github.com/adrg/xdg v0.4.0
 	github.com/blang/semver/v4 v4.0.0
 	github.com/containers/image/v5 v5.23.1
-	github.com/docker/cli v20.10.21+incompatible
+	github.com/docker/cli v24.0.2+incompatible
 	github.com/docker/distribution v2.8.2+incompatible
+	github.com/docker/docker v24.0.2+incompatible
+	github.com/go-logr/logr v1.2.3
+	github.com/mattn/go-isatty v0.0.12
 	github.com/nlepage/go-tarfs v1.1.0
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/opencontainers/image-spec v1.1.0-rc2
@@ -19,6 +22,7 @@ require (
 )
 
 require (
+	github.com/Azure/go-ansiterm v0.0.0-20230124172434-306776ec8161 // indirect
 	github.com/BurntSushi/toml v1.2.0 // indirect
 	github.com/containers/storage v1.43.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -27,7 +31,6 @@ require (
 	github.com/go-git/gcfg v1.5.0 // indirect
 	github.com/go-git/go-billy/v5 v5.1.0 // indirect
 	github.com/go-git/go-git/v5 v5.3.0 // indirect
-	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
@@ -42,8 +45,10 @@ require (
 	github.com/joelanford/ignore v0.0.0-20210607151042-0d25dc18b62d // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/moby/sys/mountinfo v0.6.2 // indirect
+	github.com/moby/term v0.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
+	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/opencontainers/runc v1.1.4 // indirect
 	github.com/opencontainers/runtime-spec v1.0.3-0.20210326190908-1c3f411f0417 // indirect
 	github.com/operator-framework/api v0.17.4-0.20230223191600-0131a6301e42 // indirect

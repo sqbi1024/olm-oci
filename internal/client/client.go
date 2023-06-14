@@ -3,15 +3,27 @@ package client
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"runtime"
+	"sort"
 
+	"github.com/docker/docker/pkg/jsonmessage"
+	dockerprogress "github.com/docker/docker/pkg/progress"
+	"github.com/docker/docker/pkg/streamformatter"
+	"github.com/go-logr/logr"
+	"github.com/mattn/go-isatty"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/content/memory"
+	"oras.land/oras-go/v2/errdef"
 
 	"github.com/joelanford/olm-oci/internal/json"
+	"github.com/joelanford/olm-oci/internal/progress"
 )
 
 type Artifact interface {
@@ -26,49 +38,46 @@ type Blob interface {
 	Data() (io.ReadCloser, error)
 }
 
-func Push(ctx context.Context, idx Artifact, repo oras.Target) (*ocispec.Descriptor, error) {
-	pushGroup, groupCtx := errgroup.WithContext(ctx)
-	pushGroup.SetLimit(8)
+type Client struct {
+	Target oras.Target
+	Log    logr.Logger
+}
 
-	desc, err := push(groupCtx, pushGroup, idx, repo)
+func Push(ctx context.Context, artifact Artifact, target oras.Target) (ocispec.Descriptor, error) {
+	store := memory.New()
+	desc, err := push(ctx, artifact, store)
 	if err != nil {
-		return nil, err
+		return ocispec.Descriptor{}, fmt.Errorf("stage artifact graph locally: %v", err)
 	}
 
-	if err := pushGroup.Wait(); err != nil {
-		return nil, err
+	if err := CopyGraphWithProgress(ctx, store, target, desc); err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("push artifact graph: %v", err)
 	}
 	return desc, nil
 }
 
-type pusher struct {
-	pushGroup     *errgroup.Group
-	artifactGroup *errgroup.Group
-	descChan      chan<- ocispec.Descriptor
-}
-
-func pushSubIndices(ctx context.Context, p pusher, subIndices []Artifact, repo oras.Target) {
+func pushSubIndices(ctx context.Context, eg *errgroup.Group, descChan chan<- ocispec.Descriptor, subIndices []Artifact, store *memory.Store) {
 	for _, si := range subIndices {
 		si := si
-		p.artifactGroup.Go(func() error {
-			manifestDesc, err := push(ctx, p.pushGroup, si, repo)
+		eg.Go(func() error {
+			manifestDesc, err := push(ctx, si, store)
 			if err != nil {
 				return err
 			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case p.descChan <- *manifestDesc:
+			case descChan <- manifestDesc:
 			}
 			return nil
 		})
 	}
 }
 
-func pushBlobs(ctx context.Context, p pusher, blobs []Blob, repo oras.Target) {
+func pushBlobs(ctx context.Context, eg *errgroup.Group, descChan chan<- ocispec.Descriptor, blobs []Blob, store *memory.Store) {
 	for _, blob := range blobs {
 		blob := blob
-		p.artifactGroup.Go(func() error {
+		eg.Go(func() error {
 			rc, err := blob.Data()
 			if err != nil {
 				return err
@@ -80,41 +89,68 @@ func pushBlobs(ctx context.Context, p pusher, blobs []Blob, repo oras.Target) {
 			}
 
 			desc := content.NewDescriptorFromBytes(blob.MediaType(), data)
-
-			errChan := make(chan error)
-			p.pushGroup.Go(func() error {
-				defer close(errChan)
-				errChan <- pushIfNotExist(ctx, repo, desc, bytes.NewReader(data))
-				return nil
-			})
-			if err := <-errChan; err != nil {
+			if err := pushIfNotExist(ctx, store, desc, bytes.NewReader(data)); err != nil {
 				return fmt.Errorf("push blob %q with digest %s failed: %w", desc.MediaType, desc.Digest, err)
 			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case p.descChan <- desc:
+			case descChan <- desc:
 				return nil
 			}
 		})
 	}
 }
 
-func push(ctx context.Context, pushGroup *errgroup.Group, idx Artifact, repo oras.Target) (*ocispec.Descriptor, error) {
-	eg, egCtx := errgroup.WithContext(ctx)
-
-	numDescs := len(idx.SubIndices()) + len(idx.Blobs())
-	descChan := make(chan ocispec.Descriptor, numDescs)
-	p := pusher{
-		pushGroup:     pushGroup,
-		artifactGroup: eg,
-		descChan:      descChan,
+func CopyGraphWithProgress(ctx context.Context, src oras.Target, dst oras.Target, desc ocispec.Descriptor) error {
+	pr, pw := io.Pipe()
+	fd := os.Stdout.Fd()
+	isTTY := isatty.IsTerminal(fd)
+	out := streamformatter.NewJSONProgressOutput(pw, !isTTY)
+	ps := progress.NewStore(src, out)
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- jsonmessage.DisplayJSONMessagesStream(pr, os.Stdout, fd, isTTY, nil)
+	}()
+	opts := oras.CopyGraphOptions{
+		Concurrency: runtime.NumCPU(),
+		OnCopySkipped: func(ctx context.Context, desc ocispec.Descriptor) error {
+			return out.WriteProgress(dockerprogress.Progress{
+				ID:     progress.IDForDesc(desc),
+				Action: "Artifact is up to date",
+			})
+		},
+		PostCopy: func(_ context.Context, desc ocispec.Descriptor) error {
+			return out.WriteProgress(dockerprogress.Progress{
+				ID:      progress.IDForDesc(desc),
+				Action:  "Complete",
+				Current: desc.Size,
+				Total:   desc.Size,
+			})
+		},
 	}
-	pushSubIndices(egCtx, p, idx.SubIndices(), repo)
-	pushBlobs(egCtx, p, idx.Blobs(), repo)
+	if err := oras.CopyGraph(ctx, ps, dst, desc, opts); err != nil {
+		return fmt.Errorf("copy artifact graph: %v", err)
+	}
+	if err := pw.Close(); err != nil {
+		return fmt.Errorf("close progress writer: %v", err)
+	}
+	if err := <-errChan; err != nil {
+		return fmt.Errorf("display progress: %v", err)
+	}
+	return nil
+}
+
+func push(ctx context.Context, artifact Artifact, store *memory.Store) (ocispec.Descriptor, error) {
+	eg, egCtx := errgroup.WithContext(ctx)
+	numDescs := len(artifact.SubIndices()) + len(artifact.Blobs())
+	descChan := make(chan ocispec.Descriptor, numDescs)
+
+	pushSubIndices(egCtx, eg, descChan, artifact.SubIndices(), store)
+	pushBlobs(egCtx, eg, descChan, artifact.Blobs(), store)
 
 	if err := eg.Wait(); err != nil {
-		return nil, err
+		return ocispec.Descriptor{}, err
 	}
 	close(descChan)
 
@@ -122,17 +158,20 @@ func push(ctx context.Context, pushGroup *errgroup.Group, idx Artifact, repo ora
 	for desc := range descChan {
 		descriptors = append(descriptors, desc)
 	}
+	sort.Slice(descriptors, func(i, j int) bool {
+		return descriptors[i].Digest.String() < descriptors[j].Digest.String()
+	})
 
 	data, _ := json.Marshal(ocispec.Artifact{
 		MediaType:    ocispec.MediaTypeArtifactManifest,
-		ArtifactType: idx.ArtifactType(),
+		ArtifactType: artifact.ArtifactType(),
 		Blobs:        descriptors,
-		Annotations:  idx.Annotations(),
+		Annotations:  artifact.Annotations(),
 	})
 	desc := content.NewDescriptorFromBytes(ocispec.MediaTypeArtifactManifest, data)
 
-	//annotations := idx.Annotations()
-	//annotations[pkg.AnnotationKeyArtifactType] = idx.ArtifactType()
+	//annotations := artifact.Annotations()
+	//annotations[pkg.AnnotationKeyArtifactType] = artifact.ArtifactType()
 	//data, _ := json.Marshal(ocispec.Artifact{
 	//	Versioned:   specs.Versioned{SchemaVersion: 2},
 	//	MediaType:   ocispec.MediaTypeImageIndex,
@@ -141,25 +180,15 @@ func push(ctx context.Context, pushGroup *errgroup.Group, idx Artifact, repo ora
 	//})
 	//desc := content.NewDescriptorFromBytes(ocispec.MediaTypeImageIndex, data)
 
-	errChan := make(chan error, 1)
-	pushGroup.Go(func() error {
-		defer close(errChan)
-		errChan <- pushIfNotExist(ctx, repo, desc, bytes.NewBuffer(data))
-		return nil
-	})
-	if err := <-errChan; err != nil {
-		return nil, fmt.Errorf("push artifact %q with digest %s failed: %w", idx.ArtifactType(), desc.Digest, err)
+	if err := pushIfNotExist(ctx, store, desc, bytes.NewBuffer(data)); err != nil {
+		return ocispec.Descriptor{}, fmt.Errorf("push artifact %q with digest %s failed: %w", artifact.ArtifactType(), desc.Digest, err)
 	}
-	return &desc, nil
+	return desc, nil
 }
 
-func pushIfNotExist(ctx context.Context, repo oras.Target, desc ocispec.Descriptor, data io.Reader) error {
-	exists, err := repo.Exists(ctx, desc)
-	if err != nil {
+func pushIfNotExist(ctx context.Context, store *memory.Store, desc ocispec.Descriptor, r io.Reader) error {
+	if err := store.Push(ctx, desc, r); err != nil && !errors.Is(err, errdef.ErrAlreadyExists) {
 		return err
 	}
-	if exists {
-		return nil
-	}
-	return repo.Push(ctx, desc, data)
+	return nil
 }

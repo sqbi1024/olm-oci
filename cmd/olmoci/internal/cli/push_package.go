@@ -9,7 +9,7 @@ import (
 
 	"github.com/joelanford/olm-oci/internal/client"
 	"github.com/joelanford/olm-oci/internal/pkg"
-	"github.com/joelanford/olm-oci/internal/util"
+	"github.com/joelanford/olm-oci/internal/remote"
 )
 
 func NewPushPackageCommand() *cobra.Command {
@@ -29,7 +29,7 @@ func NewPushPackageCommand() *cobra.Command {
 }
 
 func runPushPackage(ctx context.Context, packageDir, targetRef string) error {
-	repo, ref, err := util.ParseNameAndReference(targetRef)
+	repo, ref, err := remote.ParseNameAndReference(targetRef)
 	if err != nil {
 		return fmt.Errorf("parse target reference: %v", err)
 	}
@@ -43,9 +43,10 @@ func runPushPackage(ctx context.Context, packageDir, targetRef string) error {
 	if err != nil {
 		return fmt.Errorf("push package: %v", err)
 	}
-
-	if err := repo.Tag(ctx, *desc, ref.String()); err != nil {
+	if err := repo.Tag(ctx, desc, ref.String()); err != nil {
 		return fmt.Errorf("tag package: %v", err)
 	}
+	fmt.Printf("Digest: %s@%s\n", ref.Name(), desc.Digest.String())
+	fmt.Printf("Tag:    %s\n", ref.String())
 	return nil
 }

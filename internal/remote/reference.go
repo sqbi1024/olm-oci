@@ -1,4 +1,4 @@
-package util
+package remote
 
 import (
 	"context"
@@ -7,16 +7,7 @@ import (
 	"github.com/containers/image/v5/docker/reference"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	orasremote "oras.land/oras-go/v2/registry/remote"
-
-	"github.com/joelanford/olm-oci/internal/remote"
 )
-
-func TypeForDescriptor(d ocispec.Descriptor) string {
-	if d.ArtifactType != "" {
-		return d.ArtifactType
-	}
-	return d.MediaType
-}
 
 func TagOrDigest(ref reference.Reference) (string, error) {
 	switch r := ref.(type) {
@@ -34,7 +25,7 @@ func ParseNameAndReference(nameAndReference string) (*orasremote.Repository, ref
 		return nil, nil, err
 	}
 
-	repo, err := remote.NewRepository(ref.Name())
+	repo, err := NewRepository(ref.Name())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -54,7 +45,7 @@ func ResolveNameAndReference(ctx context.Context, nameAndReference string) (*ora
 
 	desc, err := repo.Resolve(ctx, tagOrDigest)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, fmt.Errorf("failed to resolve %s: %v", nameAndReference, err)
 	}
 	return repo, ref, &desc, nil
 }

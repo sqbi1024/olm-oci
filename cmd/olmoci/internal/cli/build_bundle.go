@@ -53,7 +53,7 @@ func runBuildBundle(ctx context.Context, bundleDir, outputFile string) error {
 	if err != nil {
 		return fmt.Errorf("build bundle: %v", err)
 	}
-	if err := store.Tag(ctx, *desc, "bundle"); err != nil {
+	if err := store.Tag(ctx, desc, "bundle"); err != nil {
 		return fmt.Errorf("tag bundle: %v", err)
 	}
 	of, err := os.Create(outputFile)
@@ -64,5 +64,7 @@ func runBuildBundle(ctx context.Context, bundleDir, outputFile string) error {
 	if err := tar.WriteFS(os.DirFS(tmpDir), of); err != nil {
 		return fmt.Errorf("write output file: %v", err)
 	}
+	fmt.Printf("Digest: %s@%s\n", outputFile, desc.Digest.String())
+	fmt.Printf("Tag: %s:bundle\n", outputFile)
 	return nil
 }

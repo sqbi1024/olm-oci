@@ -8,13 +8,12 @@ import (
 	"path/filepath"
 
 	"github.com/adrg/xdg"
-	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/spf13/cobra"
-	"oras.land/oras-go/v2"
 	"oras.land/oras-go/v2/content/oci"
 
+	"github.com/joelanford/olm-oci/internal/client"
 	"github.com/joelanford/olm-oci/internal/inspect"
-	"github.com/joelanford/olm-oci/internal/util"
+	"github.com/joelanford/olm-oci/internal/remote"
 )
 
 func NewInspectCommand() *cobra.Command {
@@ -23,7 +22,7 @@ func NewInspectCommand() *cobra.Command {
 		Short: "Recursively inspect an OCI reference (fetching from the remote repository as necessary)",
 		Args:  cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
-			src, _, desc, err := util.ResolveNameAndReference(cmd.Context(), args[0])
+			src, _, desc, err := remote.ResolveNameAndReference(cmd.Context(), args[0])
 			if err != nil {
 				log.Fatal(err)
 			}
@@ -32,24 +31,9 @@ func NewInspectCommand() *cobra.Command {
 			if err != nil {
 				log.Fatal(err)
 			}
-			if err := oras.ExtendedCopyGraph(cmd.Context(), src, dst, *desc, oras.ExtendedCopyGraphOptions{
-				CopyGraphOptions: oras.CopyGraphOptions{
-					Concurrency: 8,
-					OnCopySkipped: func(ctx context.Context, desc ocispec.Descriptor) error {
-						log.Printf("skipping copy of %s", desc.Digest)
-						return nil
-					},
-					PreCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
-						log.Printf("starting to copy %s", desc.Digest)
-						return nil
-					},
-					PostCopy: func(ctx context.Context, desc ocispec.Descriptor) error {
-						log.Printf("finished copying %s", desc.Digest)
-						return nil
-					},
-				},
-			}); err != nil {
-				log.Fatal(err)
+
+			if err := client.CopyGraphWithProgress(cmd.Context(), src, dst, *desc); err != nil {
+				log.Fatalf("copying to local store: %v", err)
 			}
 
 			fileSrc := dst

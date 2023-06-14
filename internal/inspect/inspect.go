@@ -20,10 +20,10 @@ import (
 )
 
 func Inspect(ctx context.Context, repo oras.Target, desc ocispec.Descriptor) error {
-	return printSelfAndChildren(ctx, repo, desc, "")
+	return inspect(ctx, repo, desc, "")
 }
 
-func printSelfAndChildren(ctx context.Context, target oras.Target, d ocispec.Descriptor, indent string) error {
+func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, indent string) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -60,11 +60,11 @@ func printSelfAndChildren(ctx context.Context, target oras.Target, d ocispec.Des
 		fmt.Printf("%s  Artifact Annotations: %#v\n", indent, a.Annotations)
 		fmt.Printf("%s  Artifact Blobs:\n", indent)
 		for _, blob := range a.Blobs {
-			if err := printSelfAndChildren(ctx, target, blob, fmt.Sprintf("%s    ", indent)); err != nil {
+			if err := inspect(ctx, target, blob, fmt.Sprintf("%s    ", indent)); err != nil {
 				return err
 			}
 		}
-	case pkg.MediaTypeBundleFormatPlainV0, pkg.MediaTypeBundleFormatRegistryV1:
+	case pkg.MediaTypeBundleContent:
 		gzr, err := gzip.NewReader(rc)
 		if err != nil {
 			return fmt.Errorf("read gzip: %v", err)
@@ -115,7 +115,7 @@ func printSelfAndChildren(ctx context.Context, target oras.Target, d ocispec.Des
 		fmt.Printf("%s  Image Index Annotations: %#v\n", indent, i.Annotations)
 		fmt.Printf("%s  Image Index Manifests:\n", indent)
 		for _, blob := range i.Manifests {
-			if err := printSelfAndChildren(ctx, target, blob, fmt.Sprintf("%s    ", indent)); err != nil {
+			if err := inspect(ctx, target, blob, fmt.Sprintf("%s    ", indent)); err != nil {
 				return err
 			}
 		}
@@ -140,7 +140,7 @@ func printSelfAndChildren(ctx context.Context, target oras.Target, d ocispec.Des
 					Variant:      blob.Platform.Variant,
 				},
 			}
-			if err := printSelfAndChildren(ctx, target, desc, fmt.Sprintf("%s    ", indent)); err != nil {
+			if err := inspect(ctx, target, desc, fmt.Sprintf("%s    ", indent)); err != nil {
 				return err
 			}
 		}
@@ -150,12 +150,12 @@ func printSelfAndChildren(ctx context.Context, target oras.Target, d ocispec.Des
 			return err
 		}
 		fmt.Printf("%s  Image Config:\n", indent)
-		if err := printSelfAndChildren(ctx, target, m.Config, fmt.Sprintf("%s    ", indent)); err != nil {
+		if err := inspect(ctx, target, m.Config, fmt.Sprintf("%s    ", indent)); err != nil {
 			return err
 		}
 		fmt.Printf("%s  Image Manifest Layers:\n", indent)
 		for _, blob := range m.Layers {
-			if err := printSelfAndChildren(ctx, target, blob, fmt.Sprintf("%s    ", indent)); err != nil {
+			if err := inspect(ctx, target, blob, fmt.Sprintf("%s    ", indent)); err != nil {
 				return err
 			}
 		}
@@ -173,7 +173,7 @@ func printSelfAndChildren(ctx context.Context, target oras.Target, d ocispec.Des
 			Platform:    m.Config.Platform,
 		}
 		fmt.Printf("%s  Image Config:\n", indent)
-		if err := printSelfAndChildren(ctx, target, configDesc, fmt.Sprintf("%s    ", indent)); err != nil {
+		if err := inspect(ctx, target, configDesc, fmt.Sprintf("%s    ", indent)); err != nil {
 			return err
 		}
 		fmt.Printf("%s  Image Manifest Layers:\n", indent)
@@ -186,7 +186,7 @@ func printSelfAndChildren(ctx context.Context, target oras.Target, d ocispec.Des
 				Annotations: blob.Annotations,
 				Platform:    blob.Platform,
 			}
-			if err := printSelfAndChildren(ctx, target, blobDesc, fmt.Sprintf("%s    ", indent)); err != nil {
+			if err := inspect(ctx, target, blobDesc, fmt.Sprintf("%s    ", indent)); err != nil {
 				return err
 			}
 		}
