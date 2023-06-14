@@ -56,6 +56,23 @@ func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, inde
 			fmt.Printf("%s    - From: %s\n", indent, from)
 			fmt.Printf("%s      To: %s\n", indent, strings.Join(to, ", "))
 		}
+	case pkg.MediaTypeRelatedImages:
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return err
+		}
+		var relatedImages pkg.RelatedImages
+		if err := yaml.Unmarshal(data, &relatedImages); err != nil {
+			return err
+		}
+		fmt.Printf("%s  Related Images:\n", indent)
+		for _, image := range relatedImages {
+			fmt.Printf("%s    - Image: %s\n", indent, image.Image)
+			if image.Name != "" {
+				fmt.Printf("%s      Name: %s\n", indent, image.Name)
+			}
+		}
+
 	case ocispec.MediaTypeArtifactManifest:
 		var a ocispec.Artifact
 		if err := json.NewDecoder(rc).Decode(&a); err != nil {

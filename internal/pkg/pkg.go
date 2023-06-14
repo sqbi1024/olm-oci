@@ -47,6 +47,7 @@ const (
 
 	MediaTypeBundle                 = "application/vnd.cncf.operatorframework.olm.bundle.v1"
 	MediaTypeBundleMetadata         = "application/vnd.cncf.operatorframework.olm.bundle.metadata.v1+yaml"
+	MediaTypeRelatedImages          = "application/vnd.cncf.operatorframework.olm.bundle.related-images.v1+yaml"
 	MediaTypeBundleContent          = "application/vnd.cncf.operatorframework.olm.bundle.content.v1.tar+gzip"
 	MediaTypeBundleFormatRegistryV1 = "registry+v1"
 
@@ -297,7 +298,7 @@ func LoadBundle(bundleDir string) (*Bundle, error) {
 	}
 	bundle.Content = BundleContent{FS: os.DirFS(bundleDir)}
 
-	bundle.Metadata, err = loadBundleMetadata(bundle.ContentMediaType, bundle.Content.FS, metadataAnnotations)
+	bundle.Metadata, bundle.RelatedImages, err = loadBundleMetadataAndRelatedImages(bundle.ContentMediaType, bundle.Content.FS, metadataAnnotations)
 	if err != nil {
 		return nil, fmt.Errorf("error loading metadata: %w", err)
 	}
@@ -347,43 +348,54 @@ func loadBundleMetadataAnnotations(root fs.FS) (map[string]string, error) {
 	return annotations.Annotations, nil
 }
 
-func loadBundleMetadata(mediaType string, bundleContent fs.FS, metadataAnnotations map[string]string) (BundleMetadata, error) {
+func loadBundleMetadataAndRelatedImages(mediaType string, bundleContent fs.FS, metadataAnnotations map[string]string) (BundleMetadata, RelatedImages, error) {
 	pkgName, ok := metadataAnnotations[AnnotationKeyBundlePackage]
 	if !ok {
-		return BundleMetadata{}, fmt.Errorf("missing bundle package annotation %q", AnnotationKeyBundlePackage)
+		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("missing bundle package annotation %q", AnnotationKeyBundlePackage)
 	}
 	if mediaType == MediaTypeBundleFormatRegistryV1 {
-		return loadBundleMetadataRegistryV1(bundleContent, pkgName)
+		return loadBundleMetadataAndRelatedImagesRegistryV1(bundleContent, pkgName)
 	}
 
 	v, ok := metadataAnnotations[AnnotationKeyBundleVersion]
 	if !ok {
-		return BundleMetadata{}, fmt.Errorf("missing bundle version annotation %q", AnnotationKeyBundleVersion)
+		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("missing bundle version annotation %q", AnnotationKeyBundleVersion)
 	}
 	bundleVersion, err := semver.Parse(v)
 	if err != nil {
-		return BundleMetadata{}, fmt.Errorf("invalid bundle version %q: %v", v, err)
+		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("invalid bundle version %q: %v", v, err)
 	}
 
 	r, ok := metadataAnnotations[AnnotationKeyBundleRelease]
 	if !ok {
-		return BundleMetadata{}, fmt.Errorf("missing bundle release annotation %q", AnnotationKeyBundleRelease)
+		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("missing bundle release annotation %q", AnnotationKeyBundleRelease)
 	}
 	bundleRelease, err := strconv.ParseUint(r, 10, 64)
 	if err != nil {
-		return BundleMetadata{}, fmt.Errorf("invalid bundle release %q: %v", r, err)
+		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("invalid bundle release %q: %v", r, err)
+	}
+
+	riData, err := fs.ReadFile(bundleContent, filepath.Join("metadata", "relatedImages.yaml"))
+	if err != nil {
+		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("load related images: %v", err)
+	}
+	var ri struct {
+		RelatedImages RelatedImages `json:"relatedImages"`
+	}
+	if err := yaml.Unmarshal(riData, &ri); err != nil {
+		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("unmarshal related images: %v", err)
 	}
 	return BundleMetadata{
 		Package: pkgName,
 		Version: bundleVersion,
 		Release: uint(bundleRelease),
-	}, nil
+	}, ri.RelatedImages, nil
 }
 
-func loadBundleMetadataRegistryV1(bundleContent fs.FS, pkgName string) (BundleMetadata, error) {
+func loadBundleMetadataAndRelatedImagesRegistryV1(bundleContent fs.FS, pkgName string) (BundleMetadata, RelatedImages, error) {
 	files, err := fs.ReadDir(bundleContent, "manifests")
 	if err != nil {
-		return BundleMetadata{}, fmt.Errorf("error reading manifests directory: %v", err)
+		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("error reading manifests directory: %v", err)
 	}
 
 	for _, f := range files {
@@ -399,7 +411,7 @@ func loadBundleMetadataRegistryV1(bundleContent fs.FS, pkgName string) (BundleMe
 		path := filepath.Join("manifests", name)
 		fileReader, err := bundleContent.Open(path)
 		if err != nil {
-			return BundleMetadata{}, fmt.Errorf("unable to read file %s: %s", path, err)
+			return BundleMetadata{}, RelatedImages{}, fmt.Errorf("unable to read file %s: %s", path, err)
 		}
 		defer fileReader.Close()
 
@@ -412,7 +424,7 @@ func loadBundleMetadataRegistryV1(bundleContent fs.FS, pkgName string) (BundleMe
 				if err == io.EOF {
 					break
 				}
-				return BundleMetadata{}, fmt.Errorf("failed to decode: %s", err)
+				return BundleMetadata{}, RelatedImages{}, fmt.Errorf("failed to decode: %s", err)
 			}
 			// Only include the first CSV we find in the
 			if obj.GetKind() != v1alpha1.ClusterServiceVersionKind {
@@ -420,16 +432,23 @@ func loadBundleMetadataRegistryV1(bundleContent fs.FS, pkgName string) (BundleMe
 			}
 			var csv v1alpha1.ClusterServiceVersion
 			if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &csv); err != nil {
-				return BundleMetadata{}, fmt.Errorf("extract csv: %s", err)
+				return BundleMetadata{}, RelatedImages{}, fmt.Errorf("extract csv: %s", err)
+			}
+			relatedImages := make(RelatedImages, 0, len(csv.Spec.RelatedImages))
+			for _, ri := range csv.Spec.RelatedImages {
+				relatedImages = append(relatedImages, RelatedImage{
+					Name:  ri.Name,
+					Image: ri.Image,
+				})
 			}
 			return BundleMetadata{
 				Package: pkgName,
 				Version: csv.Spec.Version.Version,
 				Release: 0,
-			}, nil
+			}, relatedImages, nil
 		}
 	}
-	return BundleMetadata{}, fmt.Errorf("no CSV found in bundle")
+	return BundleMetadata{}, RelatedImages{}, fmt.Errorf("no CSV found in bundle")
 }
 
 func LoadChannel(channelDir string, bundles []Bundle) (*Channel, error) {
@@ -635,9 +654,10 @@ func (cm ChannelMetadata) Data() (io.ReadCloser, error) {
 }
 
 type Bundle struct {
-	Metadata    BundleMetadata
-	Properties  Properties
-	Constraints Constraints
+	Metadata      BundleMetadata
+	Properties    Properties
+	Constraints   Constraints
+	RelatedImages RelatedImages
 
 	ContentMediaType string
 	Content          BundleContent
@@ -660,13 +680,17 @@ func (b Bundle) SubIndices() []client.Artifact {
 }
 
 func (b Bundle) Blobs() []client.Blob {
-	blobs := []client.Blob{b.Metadata, b.Content}
+	blobs := []client.Blob{b.Metadata}
 	if len(b.Properties) > 0 {
 		blobs = append(blobs, b.Properties)
 	}
 	if len(b.Constraints) > 0 {
 		blobs = append(blobs, b.Constraints)
 	}
+	if len(b.RelatedImages) > 0 {
+		blobs = append(blobs, b.RelatedImages)
+	}
+	blobs = append(blobs, b.Content)
 	return blobs
 }
 
@@ -682,6 +706,25 @@ func (bm BundleMetadata) MediaType() string {
 
 func (bm BundleMetadata) Data() (io.ReadCloser, error) {
 	data, err := yaml.Marshal(bm)
+	if err != nil {
+		return nil, err
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+type RelatedImage struct {
+	Image string `json:"image"`
+	Name  string `json:"name,omitempty"`
+}
+
+type RelatedImages []RelatedImage
+
+func (ri RelatedImages) MediaType() string {
+	return MediaTypeRelatedImages
+}
+
+func (ri RelatedImages) Data() (io.ReadCloser, error) {
+	data, err := yaml.Marshal(ri)
 	if err != nil {
 		return nil, err
 	}
