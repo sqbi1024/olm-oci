@@ -37,6 +37,7 @@ func runPushBundle(ctx context.Context, bundleDir, targetRef string) error {
 	if err != nil {
 		return fmt.Errorf("load bundle: %v", err)
 	}
+
 	desc, err := client.Push(ctx, b, repo)
 	if err != nil {
 		return fmt.Errorf("push bundle: %v", err)

@@ -1,0 +1,3 @@
+properties: 
+  - type: "io.rukpak.core/message"
+    value: "Thanks for using rukpak!"

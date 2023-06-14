@@ -14,6 +14,7 @@ import (
 	"github.com/docker/distribution/manifest/schema2"
 	"github.com/nlepage/go-tarfs"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"k8s.io/apimachinery/pkg/util/yaml"
 	"oras.land/oras-go/v2"
 
 	"github.com/joelanford/olm-oci/internal/pkg"
@@ -42,8 +43,12 @@ func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, inde
 
 	switch d.MediaType {
 	case pkg.MediaTypeUpgradeEdges:
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return err
+		}
 		var edges pkg.UpgradeEdges
-		if err := json.NewDecoder(rc).Decode(&edges); err != nil {
+		if err := yaml.Unmarshal(data, &edges); err != nil {
 			return err
 		}
 		fmt.Printf("%s  Upgrade Edges:\n", indent)
@@ -64,6 +69,53 @@ func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, inde
 				return err
 			}
 		}
+	case pkg.MediaTypePackageMetadata:
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return err
+		}
+		var m pkg.PackageMetadata
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			return err
+		}
+		fmt.Printf("%s  Package Metadata:\n", indent)
+		fmt.Printf("%s    Name: %s\n", indent, m.Name)
+		if m.DisplayName != "" {
+			fmt.Printf("%s    DisplayName: %s\n", indent, m.DisplayName)
+		}
+		if len(m.Keywords) > 0 {
+			fmt.Printf("%s    Keywords: %s\n", indent, m.Keywords)
+		}
+		if len(m.URLs) > 0 {
+			fmt.Printf("%s    URLs: %s\n", indent, m.URLs)
+		}
+		if len(m.Maintainers) > 0 {
+			fmt.Printf("%s    Maintainers: %s\n", indent, m.Maintainers)
+		}
+	case pkg.MediaTypeChannelMetadata:
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return err
+		}
+		var m pkg.ChannelMetadata
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			return err
+		}
+		fmt.Printf("%s  Channel Metadata:\n", indent)
+		fmt.Printf("%s    Name: %s\n", indent, m.Name)
+	case pkg.MediaTypeBundleMetadata:
+		data, err := io.ReadAll(rc)
+		if err != nil {
+			return err
+		}
+		var m pkg.BundleMetadata
+		if err := yaml.Unmarshal(data, &m); err != nil {
+			return err
+		}
+		fmt.Printf("%s  Bundle Metadata:\n", indent)
+		fmt.Printf("%s    Package: %s\n", indent, m.Package)
+		fmt.Printf("%s    Version: %s\n", indent, m.Version)
+		fmt.Printf("%s    Release: %d\n", indent, m.Release)
 	case pkg.MediaTypeBundleContent:
 		gzr, err := gzip.NewReader(rc)
 		if err != nil {
@@ -99,14 +151,14 @@ func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, inde
 			return fmt.Errorf("read gzip: %v", err)
 		}
 		fmt.Printf("%s  Properties:\n", indent)
-		fmt.Printf("%s\n", regexp.MustCompile("(?m)^").ReplaceAllString(string(data), fmt.Sprintf("%s     ", indent)))
+		fmt.Printf("%s\n", regexp.MustCompile("(?m)^").ReplaceAllString(string(data), fmt.Sprintf("%s    ", indent)))
 	case pkg.MediaTypeConstraints:
 		data, err := io.ReadAll(rc)
 		if err != nil {
 			return fmt.Errorf("read gzip: %v", err)
 		}
 		fmt.Printf("%s  Constraints:\n", indent)
-		fmt.Printf("%s\n", regexp.MustCompile("(?m)^").ReplaceAllString(string(data), fmt.Sprintf("%s     ", indent)))
+		fmt.Printf("%s\n", regexp.MustCompile("(?m)^").ReplaceAllString(string(data), fmt.Sprintf("%s    ", indent)))
 	case ocispec.MediaTypeImageIndex:
 		var i ocispec.Index
 		if err := json.NewDecoder(rc).Decode(&i); err != nil {

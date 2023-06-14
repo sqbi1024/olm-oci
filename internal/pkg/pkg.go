@@ -12,41 +12,46 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/blang/semver/v4"
 	"github.com/opencontainers/go-digest"
+	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-registry/alpha/declcfg"
 	"github.com/operator-framework/operator-registry/alpha/property"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/sets"
+	apimachyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"oras.land/oras-go/v2/content/memory"
+	"sigs.k8s.io/yaml"
 
 	"github.com/joelanford/olm-oci/internal/client"
-	"github.com/joelanford/olm-oci/internal/json"
 	"github.com/joelanford/olm-oci/internal/tar"
 )
 
 const (
 	AnnotationKeyName                   = "io.operatorframework.name"
+	AnnotationKeyBundlePackage          = "io.operatorframework.bundle.package"
 	AnnotationKeyBundleVersion          = "io.operatorframework.bundle.version"
 	AnnotationKeyBundleRelease          = "io.operatorframework.bundle.release"
 	AnnotationKeyBundleContentMediaType = "io.operatorframework.bundle.content.mediatype"
 
 	MediaTypePackage         = "application/vnd.cncf.operatorframework.olm.package.v1"
-	MediaTypePackageMetadata = "application/vnd.cncf.operatorframework.olm.package.metadata.v1+json"
-	MediaTypeUpgradeEdges    = "application/vnd.cncf.operatorframework.olm.upgrade-edges.v1+json"
+	MediaTypePackageMetadata = "application/vnd.cncf.operatorframework.olm.package.metadata.v1+yaml"
+	MediaTypeUpgradeEdges    = "application/vnd.cncf.operatorframework.olm.upgrade-edges.v1+yaml"
 
 	MediaTypeChannel         = "application/vnd.cncf.operatorframework.olm.channel.v1"
-	MediaTypeChannelMetadata = "application/vnd.cncf.operatorframework.olm.channel.metadata.v1+json"
+	MediaTypeChannelMetadata = "application/vnd.cncf.operatorframework.olm.channel.metadata.v1+yaml"
 
 	MediaTypeBundle                 = "application/vnd.cncf.operatorframework.olm.bundle.v1"
-	MediaTypeBundleMetadata         = "application/vnd.cncf.operatorframework.olm.bundle.metadata.v1+json"
+	MediaTypeBundleMetadata         = "application/vnd.cncf.operatorframework.olm.bundle.metadata.v1+yaml"
 	MediaTypeBundleContent          = "application/vnd.cncf.operatorframework.olm.bundle.content.v1.tar+gzip"
-	MediaTypeBundleFormatPlainV0    = "application/vnd.cncf.operatorframework.olm.bundle.format.plain.v0.tar+gzip"
-	MediaTypeBundleFormatRegistryV1 = "application/vnd.cncf.operatorframework.olm.bundle.format.registry.v1.tar+gzip"
+	MediaTypeBundleFormatRegistryV1 = "registry+v1"
 
-	MediaTypeProperties  = "application/vnd.cncf.operatorframework.olm.properties.v1+json"
-	MediaTypeConstraints = "application/vnd.cncf.operatorframework.olm.constraints.v1+json"
+	MediaTypeProperties  = "application/vnd.cncf.operatorframework.olm.properties.v1+yaml"
+	MediaTypeConstraints = "application/vnd.cncf.operatorframework.olm.constraints.v1+yaml"
 )
 
 var (
@@ -79,7 +84,7 @@ func LoadPackage(packageDir string) (*Package, error) {
 		err error
 	)
 
-	pkg.Metadata, err = loadPackageMetadata(filepath.Join(packageDir, "package.json"))
+	pkg.Metadata, err = loadPackageMetadata(filepath.Join(packageDir, "package.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("error loading metadata: %w", err)
 	}
@@ -101,7 +106,7 @@ func LoadPackage(packageDir string) (*Package, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error loading upgrade edges: %w", err)
 	}
-	pkg.Properties, err = loadProperties(packageDir)
+	pkg.Properties, err = loadProperties(filepath.Join(packageDir, "properties.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("error loading properties: %w", err)
 	}
@@ -119,7 +124,7 @@ func loadPackageMetadata(metadataFile string) (PackageMetadata, error) {
 		return PackageMetadata{}, err
 	}
 	var metadata PackageMetadata
-	err = gojson.Unmarshal(data, &metadata)
+	err = yaml.Unmarshal(data, &metadata)
 	return metadata, err
 }
 
@@ -153,12 +158,14 @@ func loadIcon(packageDir string) (*Icon, error) {
 }
 
 func loadUpgradeEdges(packageDir string, bundles []Bundle) (UpgradeEdges, error) {
-	data, err := os.ReadFile(filepath.Join(packageDir, "upgrade-edges.json"))
+	data, err := os.ReadFile(filepath.Join(packageDir, "upgrade-edges.yaml"))
 	if err != nil {
 		return nil, err
 	}
-	var upgradeEdges UpgradeEdges
-	if err = gojson.Unmarshal(data, &upgradeEdges); err != nil {
+	var ue struct {
+		UpgradeEdges UpgradeEdges `json:"upgradeEdges"`
+	}
+	if err = yaml.Unmarshal(data, &ue); err != nil {
 		return nil, err
 	}
 
@@ -190,7 +197,7 @@ func loadUpgradeEdges(packageDir string, bundles []Bundle) (UpgradeEdges, error)
 	}
 
 	finalUpgradeEdges := map[string][]string{}
-	for fromVersion, toVersions := range upgradeEdges {
+	for fromVersion, toVersions := range ue.UpgradeEdges {
 		for i, fromRelease := range byVersion[fromVersion] {
 			finalUpgradeEdges[fromRelease] = byVersion[fromVersion][i+1:]
 			for _, toVersion := range toVersions {
@@ -202,30 +209,36 @@ func loadUpgradeEdges(packageDir string, bundles []Bundle) (UpgradeEdges, error)
 	return finalUpgradeEdges, err
 }
 
-func loadProperties(packageDir string) (Properties, error) {
-	data, err := os.ReadFile(filepath.Join(packageDir, "properties.json"))
+func loadProperties(propertiesFile string) (Properties, error) {
+	data, err := os.ReadFile(propertiesFile)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	var properties Properties
-	err = gojson.Unmarshal(data, &properties)
-	return properties, err
+	var p struct {
+		Properties Properties `yaml:"properties"`
+	}
+	if err := yaml.Unmarshal(data, &p); err != nil {
+		return nil, err
+	}
+	return p.Properties, nil
 }
 
-func loadConstraints(packageDir string) (Constraints, error) {
-	data, err := os.ReadFile(filepath.Join(packageDir, "constraints.json"))
+func loadConstraints(constraintsFile string) (Constraints, error) {
+	data, err := os.ReadFile(constraintsFile)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	var constraints Constraints
-	err = gojson.Unmarshal(data, &constraints)
-	return constraints, err
+	var c struct {
+		Constraints Constraints `yaml:"constraints"`
+	}
+	err = yaml.Unmarshal(data, &c)
+	return c.Constraints, err
 }
 
 func loadBundles(packageDir string) ([]Bundle, error) {
@@ -271,70 +284,152 @@ func loadChannels(packageDir string, bundles []Bundle) ([]Channel, error) {
 }
 
 func LoadBundle(bundleDir string) (*Bundle, error) {
-	var (
-		bundle Bundle
-		err    error
-	)
+	var bundle Bundle
 
-	bundle.Metadata, err = loadBundleMetadata(filepath.Join(bundleDir, "bundle.json"))
+	metadataAnnotations, err := loadBundleMetadataAnnotations(os.DirFS(bundleDir))
+	if err != nil {
+		return nil, fmt.Errorf("error loading metadata annotations: %w", err)
+	}
+	if mt, ok := metadataAnnotations[AnnotationKeyBundleContentMediaType]; !ok {
+		return nil, fmt.Errorf("could not detect bundle content media type")
+	} else {
+		bundle.ContentMediaType = mt
+	}
+	bundle.Content = BundleContent{FS: os.DirFS(bundleDir)}
+
+	bundle.Metadata, err = loadBundleMetadata(bundle.ContentMediaType, bundle.Content.FS, metadataAnnotations)
 	if err != nil {
 		return nil, fmt.Errorf("error loading metadata: %w", err)
 	}
-	bundle.Properties, err = loadProperties(bundleDir)
+	bundle.Properties, err = loadProperties(filepath.Join(bundleDir, "metadata", "properties.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("error loading properties: %w", err)
 	}
-	bundle.Constraints, err = loadConstraints(bundleDir)
+	bundle.Constraints, err = loadConstraints(filepath.Join(bundleDir, "metadata", "constraints.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("error loading constraints: %w", err)
-	}
-	bundle.ContentMediaType, bundle.Content, err = loadContent(bundleDir)
-	if err != nil {
-		return nil, fmt.Errorf("error loading content: %w", err)
 	}
 
 	return &bundle, nil
 }
 
-func loadBundleMetadata(metadataFile string) (BundleMetadata, error) {
-	data, err := os.ReadFile(metadataFile)
-	if err != nil {
-		return BundleMetadata{}, err
-	}
-	var metadata BundleMetadata
-	err = gojson.Unmarshal(data, &metadata)
-	return metadata, err
+type annotationsFile struct {
+	Annotations map[string]string `json:"annotations"`
 }
 
-func loadContent(bundleDir string) (string, BundleContent, error) {
-	contentDir := filepath.Join(bundleDir, "content")
-	contentFS := os.DirFS(contentDir)
-
-	mediaTypeFilePath := filepath.Join(bundleDir, "media-type")
-
-	if mediaTypeFile, err := contentFS.Open(mediaTypeFilePath); err == nil {
-		defer mediaTypeFile.Close()
-		mediaTypeBytes, err := io.ReadAll(mediaTypeFile)
-		if err != nil {
-			return "", BundleContent{}, err
-		}
-		return string(mediaTypeBytes), BundleContent{FS: os.DirFS(contentDir)}, nil
+func loadBundleMetadataAnnotations(root fs.FS) (map[string]string, error) {
+	if root == nil {
+		return nil, fmt.Errorf("filesystem is nil")
 	}
-
-	entries, err := fs.ReadDir(contentFS, ".")
+	annotationsPath := filepath.Join("metadata", "annotations.yaml")
+	annotationsData, err := fs.ReadFile(root, annotationsPath)
 	if err != nil {
-		return "", BundleContent{}, err
+		return nil, fmt.Errorf("load %s: %v", annotationsPath, err)
 	}
-	if len(entries) == 1 && entries[0].IsDir() && entries[0].Name() == "manifests" {
-		return MediaTypeBundleFormatPlainV0, BundleContent{FS: os.DirFS(contentDir)}, nil
+	var annotations annotationsFile
+	if err := yaml.Unmarshal(annotationsData, &annotations); err != nil {
+		return nil, fmt.Errorf("unmarshal %s: %v", annotationsPath, err)
 	}
 
-	if len(entries) == 2 &&
-		entries[0].IsDir() && entries[0].Name() == "manifests" &&
-		entries[1].IsDir() && entries[1].Name() == "metadata" {
-		return MediaTypeBundleFormatRegistryV1, BundleContent{FS: os.DirFS(contentDir)}, nil
+	if pkgName, ok := annotations.Annotations["operators.operatorframework.io.bundle.package.v1"]; ok {
+		annotations.Annotations[AnnotationKeyBundlePackage] = pkgName
 	}
-	return "", BundleContent{}, fmt.Errorf("unable to detect bundle content mediatype, create file %q containing the media type", mediaTypeFilePath)
+	if mediatype, ok := annotations.Annotations["operators.operatorframework.io.bundle.mediatype.v1"]; ok {
+		annotations.Annotations[AnnotationKeyBundleContentMediaType] = mediatype
+	}
+	delete(annotations.Annotations, "operators.operatorframework.io.bundle.channel.default.v1")
+	delete(annotations.Annotations, "operators.operatorframework.io.bundle.channels.v1")
+	delete(annotations.Annotations, "operators.operatorframework.io.bundle.manifests.v1")
+	delete(annotations.Annotations, "operators.operatorframework.io.bundle.mediatype.v1")
+	delete(annotations.Annotations, "operators.operatorframework.io.bundle.metadata.v1")
+	delete(annotations.Annotations, "operators.operatorframework.io.bundle.package.v1")
+
+	return annotations.Annotations, nil
+}
+
+func loadBundleMetadata(mediaType string, bundleContent fs.FS, metadataAnnotations map[string]string) (BundleMetadata, error) {
+	pkgName, ok := metadataAnnotations[AnnotationKeyBundlePackage]
+	if !ok {
+		return BundleMetadata{}, fmt.Errorf("missing bundle package annotation %q", AnnotationKeyBundlePackage)
+	}
+	if mediaType == MediaTypeBundleFormatRegistryV1 {
+		return loadBundleMetadataRegistryV1(bundleContent, pkgName)
+	}
+
+	v, ok := metadataAnnotations[AnnotationKeyBundleVersion]
+	if !ok {
+		return BundleMetadata{}, fmt.Errorf("missing bundle version annotation %q", AnnotationKeyBundleVersion)
+	}
+	bundleVersion, err := semver.Parse(v)
+	if err != nil {
+		return BundleMetadata{}, fmt.Errorf("invalid bundle version %q: %v", v, err)
+	}
+
+	r, ok := metadataAnnotations[AnnotationKeyBundleRelease]
+	if !ok {
+		return BundleMetadata{}, fmt.Errorf("missing bundle release annotation %q", AnnotationKeyBundleRelease)
+	}
+	bundleRelease, err := strconv.ParseUint(r, 10, 64)
+	if err != nil {
+		return BundleMetadata{}, fmt.Errorf("invalid bundle release %q: %v", r, err)
+	}
+	return BundleMetadata{
+		Package: pkgName,
+		Version: bundleVersion,
+		Release: uint(bundleRelease),
+	}, nil
+}
+
+func loadBundleMetadataRegistryV1(bundleContent fs.FS, pkgName string) (BundleMetadata, error) {
+	files, err := fs.ReadDir(bundleContent, "manifests")
+	if err != nil {
+		return BundleMetadata{}, fmt.Errorf("error reading manifests directory: %v", err)
+	}
+
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+
+		name := f.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+
+		path := filepath.Join("manifests", name)
+		fileReader, err := bundleContent.Open(path)
+		if err != nil {
+			return BundleMetadata{}, fmt.Errorf("unable to read file %s: %s", path, err)
+		}
+		defer fileReader.Close()
+
+		dec := apimachyaml.NewYAMLOrJSONDecoder(fileReader, 30)
+
+		for {
+			obj := &unstructured.Unstructured{}
+			err := dec.Decode(obj)
+			if err != nil {
+				if err == io.EOF {
+					break
+				}
+				return BundleMetadata{}, fmt.Errorf("failed to decode: %s", err)
+			}
+			// Only include the first CSV we find in the
+			if obj.GetKind() != v1alpha1.ClusterServiceVersionKind {
+				continue
+			}
+			var csv v1alpha1.ClusterServiceVersion
+			if err := runtime.DefaultUnstructuredConverter.FromUnstructured(obj.Object, &csv); err != nil {
+				return BundleMetadata{}, fmt.Errorf("extract csv: %s", err)
+			}
+			return BundleMetadata{
+				Package: pkgName,
+				Version: csv.Spec.Version.Version,
+				Release: 0,
+			}, nil
+		}
+	}
+	return BundleMetadata{}, fmt.Errorf("no CSV found in bundle")
 }
 
 func LoadChannel(channelDir string, bundles []Bundle) (*Channel, error) {
@@ -343,7 +438,7 @@ func LoadChannel(channelDir string, bundles []Bundle) (*Channel, error) {
 		err     error
 	)
 
-	channel.Metadata, err = loadChannelMetadata(filepath.Join(channelDir, "channel.json"))
+	channel.Metadata, err = loadChannelMetadata(filepath.Join(channelDir, "channel.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("error loading metadata: %w", err)
 	}
@@ -351,7 +446,7 @@ func LoadChannel(channelDir string, bundles []Bundle) (*Channel, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error loading entries: %w", err)
 	}
-	channel.Properties, err = loadProperties(channelDir)
+	channel.Properties, err = loadProperties(filepath.Join(channelDir, "properties.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("error loading properties: %w", err)
 	}
@@ -360,12 +455,14 @@ func LoadChannel(channelDir string, bundles []Bundle) (*Channel, error) {
 }
 
 func loadEntries(channelDir string, bundles []Bundle) ([]Bundle, error) {
-	data, err := os.ReadFile(filepath.Join(channelDir, "entries.json"))
+	data, err := os.ReadFile(filepath.Join(channelDir, "entries.yaml"))
 	if err != nil {
 		return nil, err
 	}
-	var entries []string
-	if err := gojson.Unmarshal(data, &entries); err != nil {
+	var entries struct {
+		Entries []string `json:"entries"`
+	}
+	if err := yaml.Unmarshal(data, &entries); err != nil {
 		return nil, err
 	}
 
@@ -375,7 +472,7 @@ func loadEntries(channelDir string, bundles []Bundle) ([]Bundle, error) {
 	}
 
 	var out []Bundle
-	for _, entry := range entries {
+	for _, entry := range entries.Entries {
 		bundlesByVersion, ok := byVersion[entry]
 		if !ok {
 			return nil, fmt.Errorf("no bundles found with version %q", entry)
@@ -391,7 +488,7 @@ func loadChannelMetadata(metadataFile string) (ChannelMetadata, error) {
 		return ChannelMetadata{}, err
 	}
 	var metadata ChannelMetadata
-	err = gojson.Unmarshal(data, &metadata)
+	err = yaml.Unmarshal(data, &metadata)
 	return metadata, err
 }
 
@@ -434,7 +531,6 @@ type PackageMetadata struct {
 	Keywords    []string     `json:"keywords,omitempty"`
 	URLs        []string     `json:"urls,omitempty"`
 	Maintainers []Maintainer `json:"maintainers,omitempty"`
-	Maturity    string       `json:"maturity,omitempty"`
 }
 
 type Maintainer struct {
@@ -447,7 +543,7 @@ func (pm PackageMetadata) MediaType() string {
 }
 
 func (pm PackageMetadata) Data() (io.ReadCloser, error) {
-	data, err := json.Marshal(pm)
+	data, err := yaml.Marshal(pm)
 	if err != nil {
 		return nil, err
 	}
@@ -484,7 +580,7 @@ func (ue UpgradeEdges) MediaType() string {
 }
 
 func (ue UpgradeEdges) Data() (io.ReadCloser, error) {
-	data, err := json.Marshal(ue)
+	data, err := yaml.Marshal(ue)
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +627,7 @@ func (cm ChannelMetadata) MediaType() string {
 }
 
 func (cm ChannelMetadata) Data() (io.ReadCloser, error) {
-	data, err := json.Marshal(cm)
+	data, err := yaml.Marshal(cm)
 	if err != nil {
 		return nil, err
 	}
@@ -585,7 +681,7 @@ func (bm BundleMetadata) MediaType() string {
 }
 
 func (bm BundleMetadata) Data() (io.ReadCloser, error) {
-	data, err := json.Marshal(bm)
+	data, err := yaml.Marshal(bm)
 	if err != nil {
 		return nil, err
 	}
@@ -636,7 +732,7 @@ type TypeValue struct {
 }
 
 func (tv TypeValues) Data() (io.ReadCloser, error) {
-	data, err := json.Marshal(tv)
+	data, err := yaml.Marshal(tv)
 	if err != nil {
 		return nil, err
 	}

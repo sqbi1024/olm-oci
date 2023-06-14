@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -22,7 +23,6 @@ import (
 	"oras.land/oras-go/v2/content/memory"
 	"oras.land/oras-go/v2/errdef"
 
-	"github.com/joelanford/olm-oci/internal/json"
 	"github.com/joelanford/olm-oci/internal/progress"
 )
 

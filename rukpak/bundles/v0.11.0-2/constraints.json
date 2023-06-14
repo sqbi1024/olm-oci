@@ -1,9 +1,0 @@
-[
-    { 
-        "type": "olm.package.required", 
-        "value": { 
-            "name": "cert-manager", 
-            "versionRange": "1.9.0"
-        }
-    }
-]
