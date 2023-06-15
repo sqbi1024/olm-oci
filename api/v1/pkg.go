@@ -290,11 +290,11 @@ func LoadBundle(bundleDir string) (*Bundle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error loading metadata annotations: %w", err)
 	}
-	if mt, ok := metadataAnnotations[AnnotationKeyBundleContentMediaType]; !ok {
+	mt, ok := metadataAnnotations[AnnotationKeyBundleContentMediaType]
+	if !ok {
 		return nil, fmt.Errorf("could not detect bundle content media type")
-	} else {
-		bundle.ContentMediaType = mt
 	}
+	bundle.ContentMediaType = mt
 	bundle.Content = BundleContent{FS: os.DirFS(bundleDir)}
 
 	bundle.Metadata, bundle.RelatedImages, err = loadBundleMetadataAndRelatedImages(bundle.ContentMediaType, bundleDir, metadataAnnotations)
@@ -863,6 +863,16 @@ func (p Package) ToFBC(ctx context.Context, repo, defaultChannel string) (*declc
 			if err := b.ensureDigest(ctx); err != nil {
 				return nil, err
 			}
+
+			mtValue, err := json.Marshal(b.ContentMediaType)
+			if err != nil {
+				return nil, fmt.Errorf("error marshalling content media type: %w", err)
+			}
+			b.Properties = append(b.Properties, TypeValue{
+				Type:  "olm.bundle.mediatype",
+				Value: mtValue,
+			})
+
 			bundleMap[fullVersion(b)] = declcfg.Bundle{
 				Schema:     declcfg.SchemaBundle,
 				Package:    p.Metadata.Name,

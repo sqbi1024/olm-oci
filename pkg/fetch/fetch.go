@@ -165,7 +165,9 @@ func FetchBundle(ctx context.Context, src content.Fetcher, bArt ocispec.Artifact
 	}
 	skips := sets.New[string](skipMediaTypes...)
 
-	var bundle pkg.Bundle
+	bundle := pkg.Bundle{
+		ContentMediaType: bArt.Annotations[pkg.AnnotationKeyBundleContentMediaType],
+	}
 	for _, b := range bArt.Blobs {
 		if skips.Has(b.MediaType) {
 			continue
