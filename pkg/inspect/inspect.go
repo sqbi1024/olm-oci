@@ -112,16 +112,12 @@ func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, inde
 			}
 		}
 	case pkg.MediaTypeBundleContent:
-		gzr, err := gzip.NewReader(rc)
+		bc, err := DecodeBundleContent(rc)
 		if err != nil {
-			return fmt.Errorf("read gzip: %v", err)
-		}
-		tfs, err := tarfs.New(gzr)
-		if err != nil {
-			return fmt.Errorf("read tar: %v", err)
+			return err
 		}
 		fmt.Printf("%s  Bundle Content:\n", indent)
-		if err := fs.WalkDir(tfs, ".", func(path string, d fs.DirEntry, err error) error {
+		if err := fs.WalkDir(bc.FS, ".", func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
@@ -385,4 +381,33 @@ func DecodeConstraints(r io.Reader) (pkg.Constraints, error) {
 	var v pkg.Constraints
 	err := YAMLDecode(r, &v)
 	return v, err
+}
+
+func DecodeBundleContent(r io.Reader) (pkg.BundleContent, error) {
+	gzr, err := gzip.NewReader(r)
+	if err != nil {
+		return pkg.BundleContent{}, fmt.Errorf("read gzip: %v", err)
+	}
+	tfs, err := tarfs.New(gzr)
+	if err != nil {
+		return pkg.BundleContent{}, fmt.Errorf("read tar: %v", err)
+	}
+	return pkg.BundleContent{FS: tfs}, nil
+}
+
+func DecodeIcon(mediaType string, r io.Reader) (pkg.Icon, error) {
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return pkg.Icon{}, nil
+	}
+	return pkg.Icon{ImageMediaType: mediaType, ImageData: data}, nil
+}
+
+func DecodeDescription(r io.Reader) (pkg.Description, error) {
+	var sb strings.Builder
+	_, err := io.Copy(&sb, r)
+	if err != nil {
+		return "", err
+	}
+	return pkg.Description(sb.String()), nil
 }

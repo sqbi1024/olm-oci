@@ -26,6 +26,7 @@ func NewInspectCommand() *cobra.Command {
 			if err != nil {
 				log.Fatal(err)
 			}
+
 			storeDir := filepath.Join(xdg.CacheHome, "olm-oci", "store")
 			dst, err := oci.NewWithContext(cmd.Context(), storeDir)
 			if err != nil {
