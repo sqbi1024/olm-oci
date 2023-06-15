@@ -806,7 +806,7 @@ func convertTypeValues(in []TypeValue) []property.Property {
 
 func (p Package) ToFBC(ctx context.Context, repo, defaultChannel string) (*declcfg.DeclarativeConfig, error) {
 	pkg := declcfg.Package{
-		Schema:         "olm.schema",
+		Schema:         declcfg.SchemaPackage,
 		Name:           p.Metadata.Name,
 		DefaultChannel: defaultChannel,
 		Description:    string(p.Description),
@@ -852,7 +852,7 @@ func (p Package) ToFBC(ctx context.Context, repo, defaultChannel string) (*declc
 		}
 
 		channels = append(channels, declcfg.Channel{
-			Schema:     "olm.channel",
+			Schema:     declcfg.SchemaChannel,
 			Package:    p.Metadata.Name,
 			Name:       ch.Metadata.Name,
 			Entries:    entries,
@@ -864,7 +864,7 @@ func (p Package) ToFBC(ctx context.Context, repo, defaultChannel string) (*declc
 				return nil, err
 			}
 			bundleMap[fullVersion(b)] = declcfg.Bundle{
-				Schema:     "olm.bundle",
+				Schema:     declcfg.SchemaBundle,
 				Package:    p.Metadata.Name,
 				Name:       bundleName(b),
 				Image:      fmt.Sprintf("%s@%s", repo, b.Digest),
