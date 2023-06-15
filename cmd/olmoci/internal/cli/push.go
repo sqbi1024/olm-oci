@@ -10,6 +10,7 @@ func NewPushCommand() *cobra.Command {
 		Short: "Push OLM OCI artifacts to a registry.",
 	}
 	cmd.AddCommand(
+		NewPushArchiveCommand(),
 		NewPushPackageCommand(),
 		NewPushBundleCommand(),
 	)

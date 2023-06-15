@@ -14,16 +14,16 @@ import (
 	"github.com/nlepage/go-tarfs"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
-	"oras.land/oras-go/v2"
+	"oras.land/oras-go/v2/content"
 
 	pkg "github.com/joelanford/olm-oci/api/v1"
 )
 
-func Inspect(ctx context.Context, repo oras.Target, desc ocispec.Descriptor) error {
+func Inspect(ctx context.Context, repo content.ReadOnlyStorage, desc ocispec.Descriptor) error {
 	return inspect(ctx, repo, desc, "")
 }
 
-func inspect(ctx context.Context, target oras.Target, d ocispec.Descriptor, indent string) error {
+func inspect(ctx context.Context, target content.ReadOnlyStorage, d ocispec.Descriptor, indent string) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()

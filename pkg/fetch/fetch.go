@@ -43,6 +43,50 @@ func FetchArtifact(ctx context.Context, src content.Fetcher, desc ocispec.Descri
 	return inspect.DecodeArtifact(rc)
 }
 
+func FetchCatalog(ctx context.Context, src content.Fetcher, catArtifact ocispec.Artifact, skipMediaTypes ...string) (*pkg.Catalog, error) {
+	if catArtifact.ArtifactType != pkg.MediaTypeCatalog {
+		return nil, fmt.Errorf("expected artifact type %q, got %q", pkg.MediaTypeCatalog, catArtifact.ArtifactType)
+	}
+	skips := sets.New[string](skipMediaTypes...)
+	var c pkg.Catalog
+	for _, b := range catArtifact.Blobs {
+		if skips.Has(b.MediaType) {
+			continue
+		}
+		if err := func() error {
+			if b.MediaType != ocispec.MediaTypeArtifactManifest {
+				return fmt.Errorf("expected artifact manifest, got %q", b.MediaType)
+			}
+
+			br, err := src.Fetch(ctx, b)
+			if err != nil {
+				return fmt.Errorf("fetch blob: %v", err)
+			}
+			defer br.Close()
+
+			blobArt, err := inspect.DecodeArtifact(br)
+			if err != nil {
+				return fmt.Errorf("decode artifact manifest: %v", err)
+			}
+			switch blobArt.ArtifactType {
+			case pkg.MediaTypePackage:
+				p, err := FetchPackage(ctx, src, blobArt, skipMediaTypes...)
+				if err != nil {
+					return fmt.Errorf("fetch package: %v", err)
+				}
+				c.Packages = append(c.Packages, *p)
+			default:
+				return fmt.Errorf("expected artifact type %q, got %q", pkg.MediaTypePackage, blobArt.ArtifactType)
+			}
+			return nil
+
+		}(); err != nil {
+			return nil, err
+		}
+	}
+	return &c, nil
+}
+
 func FetchPackage(ctx context.Context, src content.Fetcher, pkgArtifact ocispec.Artifact, skipMediaTypes ...string) (*pkg.Package, error) {
 	if pkgArtifact.ArtifactType != pkg.MediaTypePackage {
 		return nil, fmt.Errorf("expected artifact type %q, got %q", pkg.MediaTypePackage, pkgArtifact.ArtifactType)

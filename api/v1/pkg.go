@@ -37,6 +37,8 @@ const (
 	AnnotationKeyBundleRelease          = "io.operatorframework.bundle.release"
 	AnnotationKeyBundleContentMediaType = "io.operatorframework.bundle.content.mediatype"
 
+	MediaTypeCatalog = "application/vnd.cncf.operatorframework.olm.catalog.v1"
+
 	MediaTypePackage         = "application/vnd.cncf.operatorframework.olm.package.v1"
 	MediaTypePackageMetadata = "application/vnd.cncf.operatorframework.olm.package.metadata.v1+yaml"
 	MediaTypeUpgradeEdges    = "application/vnd.cncf.operatorframework.olm.upgrade-edges.v1+yaml"
@@ -55,6 +57,7 @@ const (
 )
 
 var (
+	_ client.Artifact = &Catalog{}
 	_ client.Artifact = &Package{}
 	_ client.Artifact = &Channel{}
 	_ client.Artifact = &Bundle{}
@@ -67,6 +70,30 @@ var (
 	_ client.Blob = &Properties{}
 	_ client.Blob = &Constraints{}
 )
+
+type Catalog struct {
+	Packages []Package
+}
+
+func (c *Catalog) ArtifactType() string {
+	return MediaTypeCatalog
+}
+
+func (c *Catalog) Annotations() map[string]string {
+	return nil
+}
+
+func (c *Catalog) SubArtifacts() []client.Artifact {
+	var artifacts []client.Artifact
+	for _, p := range c.Packages {
+		artifacts = append(artifacts, p)
+	}
+	return artifacts
+}
+
+func (c *Catalog) Blobs() []client.Blob {
+	return nil
+}
 
 type Package struct {
 	Metadata     PackageMetadata
@@ -528,12 +555,12 @@ func (p Package) Annotations() map[string]string {
 	return map[string]string{AnnotationKeyName: p.Metadata.Name}
 }
 
-func (p Package) SubIndices() []client.Artifact {
-	var indices []client.Artifact
+func (p Package) SubArtifacts() []client.Artifact {
+	var artifacts []client.Artifact
 	for _, ch := range p.Channels {
-		indices = append(indices, ch)
+		artifacts = append(artifacts, ch)
 	}
-	return indices
+	return artifacts
 }
 
 func (p Package) Blobs() []client.Blob {
@@ -630,12 +657,12 @@ func (c Channel) Annotations() map[string]string {
 	return map[string]string{AnnotationKeyName: c.Metadata.Name}
 }
 
-func (c Channel) SubIndices() []client.Artifact {
-	var indices []client.Artifact
+func (c Channel) SubArtifacts() []client.Artifact {
+	var artifacts []client.Artifact
 	for _, b := range c.Bundles {
-		indices = append(indices, b)
+		artifacts = append(artifacts, b)
 	}
-	return indices
+	return artifacts
 }
 
 func (c Channel) Blobs() []client.Blob {
@@ -686,7 +713,7 @@ func (b Bundle) Annotations() map[string]string {
 	}
 }
 
-func (b Bundle) SubIndices() []client.Artifact {
+func (b Bundle) SubArtifacts() []client.Artifact {
 	return nil
 }
 
@@ -804,13 +831,27 @@ func convertTypeValues(in []TypeValue) []property.Property {
 	return out
 }
 
-func (p Package) ToFBC(ctx context.Context, repo, defaultChannel string) (*declcfg.DeclarativeConfig, error) {
+func (c Catalog) ToFBC(ctx context.Context, repo string) (*declcfg.DeclarativeConfig, error) {
+	out := &declcfg.DeclarativeConfig{}
+	for _, p := range c.Packages {
+		p, err := p.ToFBC(ctx, repo)
+		if err != nil {
+			return nil, err
+		}
+		out.Packages = append(out.Packages, p.Packages...)
+		out.Channels = append(out.Channels, p.Channels...)
+		out.Bundles = append(out.Bundles, p.Bundles...)
+		out.Others = append(out.Others, p.Others...)
+	}
+	return out, nil
+}
+
+func (p Package) ToFBC(ctx context.Context, repo string) (*declcfg.DeclarativeConfig, error) {
 	pkg := declcfg.Package{
-		Schema:         declcfg.SchemaPackage,
-		Name:           p.Metadata.Name,
-		DefaultChannel: defaultChannel,
-		Description:    string(p.Description),
-		Properties:     convertTypeValues(p.Properties),
+		Schema:      declcfg.SchemaPackage,
+		Name:        p.Metadata.Name,
+		Description: string(p.Description),
+		Properties:  convertTypeValues(p.Properties),
 	}
 	if p.Icon != nil {
 		pkg.Icon = &declcfg.Icon{
@@ -839,6 +880,12 @@ func (p Package) ToFBC(ctx context.Context, repo, defaultChannel string) (*declc
 		entries := make([]declcfg.ChannelEntry, 0, len(ch.Bundles))
 		for _, b := range ch.Bundles {
 			from := fullVersion(b)
+			if len(p.UpgradeEdges) == 0 {
+				entries = append(entries, declcfg.ChannelEntry{
+					Name: bundleName(b),
+				})
+				continue
+			}
 			tos := p.UpgradeEdges[from]
 			for _, to := range tos {
 				if !inChannel.Has(to) {
@@ -868,10 +915,27 @@ func (p Package) ToFBC(ctx context.Context, repo, defaultChannel string) (*declc
 			if err != nil {
 				return nil, fmt.Errorf("error marshalling content media type: %w", err)
 			}
-			b.Properties = append(b.Properties, TypeValue{
-				Type:  "olm.bundle.mediatype",
-				Value: mtValue,
-			})
+
+			packageProp := map[string]any{
+				"packageName": b.Metadata.Package,
+				"version":     b.Metadata.Version,
+				"release":     b.Metadata.Release,
+			}
+
+			pkgPropValue, err := json.Marshal(packageProp)
+			if err != nil {
+				return nil, fmt.Errorf("error marshalling bundle metadata: %w", err)
+			}
+			b.Properties = append(b.Properties,
+				TypeValue{
+					Type:  "olm.bundle.mediatype",
+					Value: mtValue,
+				},
+				TypeValue{
+					Type:  "olm.package",
+					Value: pkgPropValue,
+				},
+			)
 
 			bundleMap[fullVersion(b)] = declcfg.Bundle{
 				Schema:     declcfg.SchemaBundle,

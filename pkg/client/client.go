@@ -29,7 +29,7 @@ import (
 type Artifact interface {
 	ArtifactType() string
 	Annotations() map[string]string
-	SubIndices() []Artifact
+	SubArtifacts() []Artifact
 	Blobs() []Blob
 }
 
@@ -56,7 +56,7 @@ func Push(ctx context.Context, artifact Artifact, target oras.Target) (ocispec.D
 	return desc, nil
 }
 
-func pushSubIndices(ctx context.Context, eg *errgroup.Group, descChan chan<- ocispec.Descriptor, subIndices []Artifact, store *memory.Store) {
+func pushSubArtifacts(ctx context.Context, eg *errgroup.Group, descChan chan<- ocispec.Descriptor, subIndices []Artifact, store *memory.Store) {
 	for _, si := range subIndices {
 		si := si
 		eg.Go(func() error {
@@ -102,7 +102,7 @@ func pushBlobs(ctx context.Context, eg *errgroup.Group, descChan chan<- ocispec.
 	}
 }
 
-func CopyGraphWithProgress(ctx context.Context, src oras.Target, dst oras.Target, desc ocispec.Descriptor) error {
+func CopyGraphWithProgress(ctx context.Context, src content.ReadOnlyStorage, dst oras.Target, desc ocispec.Descriptor) error {
 	pr, pw := io.Pipe()
 	fd := os.Stdout.Fd()
 	isTTY := isatty.IsTerminal(fd)
@@ -143,10 +143,10 @@ func CopyGraphWithProgress(ctx context.Context, src oras.Target, dst oras.Target
 
 func push(ctx context.Context, artifact Artifact, store *memory.Store) (ocispec.Descriptor, error) {
 	eg, egCtx := errgroup.WithContext(ctx)
-	numDescs := len(artifact.SubIndices()) + len(artifact.Blobs())
+	numDescs := len(artifact.SubArtifacts()) + len(artifact.Blobs())
 	descChan := make(chan ocispec.Descriptor, numDescs)
 
-	pushSubIndices(egCtx, eg, descChan, artifact.SubIndices(), store)
+	pushSubArtifacts(egCtx, eg, descChan, artifact.SubArtifacts(), store)
 	pushBlobs(egCtx, eg, descChan, artifact.Blobs(), store)
 
 	if err := eg.Wait(); err != nil {
