@@ -670,6 +670,8 @@ type Bundle struct {
 
 	ContentMediaType string
 	Content          BundleContent
+
+	Digest digest.Digest
 }
 
 func (b Bundle) ArtifactType() string {
@@ -858,15 +860,14 @@ func (p Package) ToFBC(ctx context.Context, repo, defaultChannel string) (*declc
 		})
 
 		for _, b := range ch.Bundles {
-			dig, err := b.getDigest(ctx)
-			if err != nil {
+			if err := b.ensureDigest(ctx); err != nil {
 				return nil, err
 			}
 			bundleMap[fullVersion(b)] = declcfg.Bundle{
 				Schema:     "olm.bundle",
 				Package:    p.Metadata.Name,
 				Name:       bundleName(b),
-				Image:      fmt.Sprintf("%s@%s", repo, dig),
+				Image:      fmt.Sprintf("%s@%s", repo, b.Digest),
 				Properties: append(convertTypeValues(b.Properties), convertTypeValues(b.Constraints)...),
 			}
 		}
@@ -887,11 +888,20 @@ func (p Package) ToFBC(ctx context.Context, repo, defaultChannel string) (*declc
 	}, nil
 }
 
-func (b Bundle) getDigest(ctx context.Context) (digest.Digest, error) {
+func (b *Bundle) ensureDigest(ctx context.Context) error {
+	if b.Content.FS == nil {
+		if b.Digest != "" {
+			// trust what's already here
+			return nil
+		}
+		return fmt.Errorf("cannot compute digest for sparse bundle")
+	}
 	st := memory.New()
 	desc, err := client.Push(ctx, b, st)
 	if err != nil {
-		return "", err
+		return err
 	}
-	return desc.Digest, nil
+	b.Digest = desc.Digest
+	return nil
+
 }

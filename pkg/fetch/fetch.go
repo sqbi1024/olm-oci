@@ -43,13 +43,17 @@ func FetchArtifact(ctx context.Context, src content.Fetcher, desc ocispec.Descri
 	return inspect.DecodeArtifact(rc)
 }
 
-func FetchPackage(ctx context.Context, src content.Fetcher, pkgArtifact ocispec.Artifact) (*pkg.Package, error) {
+func FetchPackage(ctx context.Context, src content.Fetcher, pkgArtifact ocispec.Artifact, skipMediaTypes ...string) (*pkg.Package, error) {
 	if pkgArtifact.ArtifactType != pkg.MediaTypePackage {
 		return nil, fmt.Errorf("expected artifact type %q, got %q", pkg.MediaTypePackage, pkgArtifact.ArtifactType)
 	}
+	skips := sets.New[string](skipMediaTypes...)
 
 	var p pkg.Package
 	for _, b := range pkgArtifact.Blobs {
+		if skips.Has(b.MediaType) {
+			continue
+		}
 		if err := func() error {
 			br, err := src.Fetch(ctx, b)
 			if err != nil {
@@ -64,7 +68,7 @@ func FetchPackage(ctx context.Context, src content.Fetcher, pkgArtifact ocispec.
 				}
 				switch blobArt.ArtifactType {
 				case pkg.MediaTypeChannel:
-					ch, err := FetchChannel(ctx, src, blobArt)
+					ch, err := FetchChannel(ctx, src, blobArt, skipMediaTypes...)
 					if err != nil {
 						return fmt.Errorf("fetch channel: %v", err)
 					}
@@ -100,12 +104,17 @@ func FetchPackage(ctx context.Context, src content.Fetcher, pkgArtifact ocispec.
 	return &p, nil
 }
 
-func FetchChannel(ctx context.Context, src content.Fetcher, chArt ocispec.Artifact) (*pkg.Channel, error) {
+func FetchChannel(ctx context.Context, src content.Fetcher, chArt ocispec.Artifact, skipMediaTypes ...string) (*pkg.Channel, error) {
 	if chArt.ArtifactType != pkg.MediaTypeChannel {
 		return nil, fmt.Errorf("expected artifact type %q, got %q", pkg.MediaTypeChannel, chArt.ArtifactType)
 	}
+	skips := sets.New[string](skipMediaTypes...)
+
 	var ch pkg.Channel
 	for _, b := range chArt.Blobs {
+		if skips.Has(b.MediaType) {
+			continue
+		}
 		if err := func() error {
 			br, err := src.Fetch(ctx, b)
 			if err != nil {
@@ -120,10 +129,11 @@ func FetchChannel(ctx context.Context, src content.Fetcher, chArt ocispec.Artifa
 				}
 				switch blobArt.ArtifactType {
 				case pkg.MediaTypeBundle:
-					bundle, err := FetchBundle(ctx, src, blobArt)
+					bundle, err := FetchBundle(ctx, src, blobArt, skipMediaTypes...)
 					if err != nil {
 						return fmt.Errorf("fetch channel: %v", err)
 					}
+					bundle.Digest = b.Digest
 					ch.Bundles = append(ch.Bundles, *bundle)
 				default:
 					return fmt.Errorf("expected artifact type %q, got %q", pkg.MediaTypeBundle, blobArt.ArtifactType)
@@ -149,12 +159,17 @@ func FetchChannel(ctx context.Context, src content.Fetcher, chArt ocispec.Artifa
 	return &ch, nil
 }
 
-func FetchBundle(ctx context.Context, src content.Fetcher, bArt ocispec.Artifact) (*pkg.Bundle, error) {
+func FetchBundle(ctx context.Context, src content.Fetcher, bArt ocispec.Artifact, skipMediaTypes ...string) (*pkg.Bundle, error) {
 	if bArt.ArtifactType != pkg.MediaTypeBundle {
 		return nil, fmt.Errorf("expected artifact type %q, got %q", pkg.MediaTypeBundle, bArt.ArtifactType)
 	}
+	skips := sets.New[string](skipMediaTypes...)
+
 	var bundle pkg.Bundle
 	for _, b := range bArt.Blobs {
+		if skips.Has(b.MediaType) {
+			continue
+		}
 		if err := func() error {
 			br, err := src.Fetch(ctx, b)
 			if err != nil {
