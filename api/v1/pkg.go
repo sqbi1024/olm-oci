@@ -946,7 +946,7 @@ func (p Package) ToFBC(ctx context.Context, repo string) (*declcfg.DeclarativeCo
 				Schema:     declcfg.SchemaBundle,
 				Package:    p.Metadata.Name,
 				Name:       bundleName(b),
-				Image:      fmt.Sprintf("%s@%s", repo, b.Digest),
+				Image:      fmt.Sprintf("oci://%s@%s", repo, b.Digest),
 				Properties: append(convertTypeValues(b.Properties), convertTypeValues(b.Constraints)...),
 			}
 		}
