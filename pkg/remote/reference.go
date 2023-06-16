@@ -9,6 +9,8 @@ import (
 	orasremote "oras.land/oras-go/v2/registry/remote"
 )
 
+var errNotTaggedOrDigested = fmt.Errorf("reference is not tagged or digested")
+
 func TagOrDigest(ref reference.Reference) (string, error) {
 	switch r := ref.(type) {
 	case reference.Digested:
@@ -16,7 +18,7 @@ func TagOrDigest(ref reference.Reference) (string, error) {
 	case reference.Tagged:
 		return r.Tag(), nil
 	}
-	return "", fmt.Errorf("reference is not tagged or digested")
+	return "", errNotTaggedOrDigested
 }
 
 func ParseNameAndReference(nameAndReference string) (*orasremote.Repository, reference.Named, error) {

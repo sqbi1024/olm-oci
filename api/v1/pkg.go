@@ -392,17 +392,17 @@ func loadBundleMetadataAndRelatedImages(mediaType string, bundleDir string, meta
 		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("invalid bundle version %q: %v", v, err)
 	}
 
+	var bundleRelease uint64
 	r, ok := metadataAnnotations[AnnotationKeyBundleRelease]
-	if !ok {
-		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("missing bundle release annotation %q", AnnotationKeyBundleRelease)
-	}
-	bundleRelease, err := strconv.ParseUint(r, 10, 64)
-	if err != nil {
-		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("invalid bundle release %q: %v", r, err)
+	if ok {
+		bundleRelease, err = strconv.ParseUint(r, 10, 64)
+		if err != nil {
+			return BundleMetadata{}, RelatedImages{}, fmt.Errorf("invalid bundle release %q: %v", r, err)
+		}
 	}
 
 	riData, err := os.ReadFile(filepath.Join(bundleDir, "metadata", "relatedImages.yaml"))
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return BundleMetadata{}, RelatedImages{}, fmt.Errorf("load related images: %v", err)
 	}
 	var ri struct {
@@ -457,6 +457,12 @@ func getRegistryBundleRelatedImages(b registry.Bundle) (RelatedImages, error) {
 		allImages = allImages.Insert(img)
 	}
 
+	sort.Slice(relatedImages, func(i, j int) bool {
+		if relatedImages[i].Image != relatedImages[j].Image {
+			return relatedImages[i].Image < relatedImages[j].Image
+		}
+		return relatedImages[i].Name < relatedImages[j].Name
+	})
 	return relatedImages, nil
 }
 
@@ -483,7 +489,6 @@ func loadBundleMetadataAndRelatedImagesRegistryV1(bundleDir string, pkgName stri
 	return BundleMetadata{
 		Package: pkgName,
 		Version: version,
-		Release: 0,
 	}, relatedImages, nil
 }
 

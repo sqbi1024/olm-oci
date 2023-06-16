@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 
+	"github.com/containers/image/v5/docker/reference"
 	"github.com/spf13/cobra"
 	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/registry"
@@ -19,41 +21,86 @@ func NewPushArchiveCommand() *cobra.Command {
 		Short: "Push an OLM OCI archive to a registry.",
 		Args:  cobra.ExactArgs(2),
 		Run: func(cmd *cobra.Command, args []string) {
-			archiveFile := args[0]
-			targetRepo := args[1]
+			archiveRefStr := args[0]
+			targetRefStr := args[1]
 
-			if err := runPushArchive(cmd.Context(), archiveFile, targetRepo); err != nil {
+			if err := runPushArchive(cmd.Context(), archiveRefStr, targetRefStr); err != nil {
 				log.Fatal(err)
 			}
 		},
 	}
 }
 
-func runPushArchive(ctx context.Context, archiveFile, targetRepo string) error {
-	repo, _, err := remote.ParseNameAndReference(targetRepo)
+func runPushArchive(ctx context.Context, archiveRefStr, targetRefStr string) error {
+	archiveRef, err := reference.Parse(archiveRefStr)
+	if err != nil {
+		return fmt.Errorf("parse artifact reference: %v", err)
+	}
+	targetRef, err := reference.Parse(targetRefStr)
 	if err != nil {
 		return fmt.Errorf("parse target reference: %v", err)
 	}
+	archiveRefNamed, ok := archiveRef.(reference.Named)
+	if !ok {
+		return fmt.Errorf("archive reference is not named")
+	}
+	targetRefNamed, ok := targetRef.(reference.Named)
+	if !ok {
+		return fmt.Errorf("target reference is not named")
+	}
+	archiveTagOrDig, archiveTagDigErr := remote.TagOrDigest(archiveRefNamed)
+	_, targetTagDigErr := remote.TagOrDigest(targetRefNamed)
+	if archiveTagDigErr != targetTagDigErr {
+		return fmt.Errorf("archive and target reference must be both repository references or specific descriptor references (tag/digest)")
+	}
 
-	src, err := oci.NewFromTar(ctx, archiveFile)
+	if s, err := os.Stat(archiveRefNamed.Name()); err != nil || s.IsDir() {
+		return fmt.Errorf("archive reference must be a file")
+	}
+
+	srcRepo, err := oci.NewFromTar(ctx, archiveRefNamed.Name())
 	if err != nil {
 		return fmt.Errorf("load archive: %v", err)
 	}
 
-	tags, err := registry.Tags(ctx, src)
+	targetRepo, err := remote.NewRepository(targetRefNamed.Name())
 	if err != nil {
-		return fmt.Errorf("get tags: %v", err)
+		return fmt.Errorf("create target repository client: %v", err)
 	}
-	for _, tag := range tags {
-		desc, err := src.Resolve(ctx, tag)
+
+	if archiveTagDigErr == nil {
+		desc, err := srcRepo.Resolve(ctx, archiveTagOrDig)
 		if err != nil {
-			return fmt.Errorf("resolve tag %s: %v", tag, err)
+			return fmt.Errorf("resolve archive reference: %v", err)
 		}
-		if err := client.CopyGraphWithProgress(ctx, src, repo, desc); err != nil {
-			return fmt.Errorf("push archive: %v", err)
+		if err := client.CopyGraphWithProgress(ctx, srcRepo, targetRepo, desc); err != nil {
+			return fmt.Errorf("push: %v", err)
 		}
-		if err := repo.Tag(ctx, desc, tag); err != nil {
-			return fmt.Errorf("tag archive: %v", err)
+		if tag, ok := targetRef.(reference.Tagged); ok {
+			if err := targetRepo.Tag(ctx, desc, tag.Tag()); err != nil {
+				return fmt.Errorf("tag: %v", err)
+			}
+			fmt.Printf("Tag: %s\n", targetRef.String())
+		}
+		fmt.Printf("Digest: %s\n", fmt.Sprintf("%s@%s", targetRefNamed.Name(), desc.Digest.String()))
+	} else {
+		tags, err := registry.Tags(ctx, srcRepo)
+		if err != nil {
+			return fmt.Errorf("get tags from archive: %v", err)
+		}
+		for _, t := range tags {
+			desc, err := srcRepo.Resolve(ctx, t)
+			if err != nil {
+				return fmt.Errorf("resolve archive tag: %v", err)
+			}
+			if err := client.CopyGraphWithProgress(ctx, srcRepo, targetRepo, desc); err != nil {
+				return fmt.Errorf("push: %v", err)
+			}
+			if err := targetRepo.Tag(ctx, desc, t); err != nil {
+				return fmt.Errorf("tag: %v", err)
+			}
+			fmt.Printf("Tag: %s\n", fmt.Sprintf("%s:%s", targetRefNamed.Name(), t))
+			fmt.Printf("Digest: %s\n", fmt.Sprintf("%s@%s", targetRefNamed.Name(), desc.Digest.String()))
 		}
 	}
 	return nil

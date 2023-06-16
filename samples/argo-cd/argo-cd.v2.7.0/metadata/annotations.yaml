@@ -1,0 +1,5 @@
+annotations:
+  io.operatorframework.bundle.package: "argo-cd"
+  io.operatorframework.bundle.version: "2.7.0"
+  io.operatorframework.bundle.release: "0"
+  io.operatorframework.bundle.content.mediatype: "plain+v0"
