@@ -7,7 +7,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && git rev-parse --show-toplevel)"
 (cd "${root}" && make)
 
 rm -rf ${root}/samples/catalog* && mkdir ${root}/samples/catalog
-for bundle in $(find ${root}/samples -depth 2); do
+for bundle in $(find ${root}/samples/bundles -depth 2); do
 	name=$(basename "${bundle}")
 	echo "==== Building ${bundle} ===="
 	${root}/bin/bundlebuild ${bundle} ${root}/samples/catalog/${name}.oci.tar
