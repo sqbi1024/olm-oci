@@ -5,9 +5,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
+	"sync"
 
 	"github.com/containers/image/v5/docker/reference"
+	"github.com/opencontainers/go-digest"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2/content/oci"
 	"oras.land/oras-go/v2/registry"
 
@@ -88,19 +92,36 @@ func runPushArchive(ctx context.Context, archiveRefStr, targetRefStr string) err
 		if err != nil {
 			return fmt.Errorf("get tags from archive: %v", err)
 		}
+
+		eg, egCtx := errgroup.WithContext(ctx)
+		eg.SetLimit(runtime.NumCPU())
+		tagMap := map[string]digest.Digest{}
+		var tmm sync.Mutex
 		for _, t := range tags {
-			desc, err := srcRepo.Resolve(ctx, t)
-			if err != nil {
-				return fmt.Errorf("resolve archive tag: %v", err)
-			}
-			if err := client.CopyGraphWithProgress(ctx, srcRepo, targetRepo, desc); err != nil {
-				return fmt.Errorf("push: %v", err)
-			}
-			if err := targetRepo.Tag(ctx, desc, t); err != nil {
-				return fmt.Errorf("tag: %v", err)
-			}
-			fmt.Printf("Tag: %s\n", fmt.Sprintf("%s:%s", targetRefNamed.Name(), t))
-			fmt.Printf("Digest: %s\n", fmt.Sprintf("%s@%s", targetRefNamed.Name(), desc.Digest.String()))
+			t := t
+			eg.Go(func() error {
+				desc, err := srcRepo.Resolve(egCtx, t)
+				if err != nil {
+					return fmt.Errorf("resolve archive tag: %v", err)
+				}
+				if err := client.CopyGraphWithProgress(egCtx, srcRepo, targetRepo, desc); err != nil {
+					return fmt.Errorf("push: %v", err)
+				}
+				if err := targetRepo.Tag(egCtx, desc, t); err != nil {
+					return fmt.Errorf("tag: %v", err)
+				}
+				tmm.Lock()
+				defer tmm.Unlock()
+				tagMap[t] = desc.Digest
+				return nil
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			return fmt.Errorf("push tags: %v", err)
+		}
+
+		for _, t := range tags {
+			fmt.Printf("Successfully pushed %s (%s)\n", fmt.Sprintf("%s:%s", targetRefNamed.Name(), t), tagMap[t].String())
 		}
 	}
 	return nil

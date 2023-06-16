@@ -19,4 +19,4 @@ ${root}/bin/createcatalog ${root}/samples/catalog ${root}/samples/catalog.oci.ta
 echo ""
 
 echo "==== Pushing catalog ===="
-(cd ${root}/samples && ../bin/olmoci push archive catalog.oci.tar:catalog ${CATALOG_REPO}:catalog)
+(cd ${root}/samples && ../bin/olmoci push archive catalog.oci.tar ${CATALOG_REPO})
