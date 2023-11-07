@@ -29,7 +29,8 @@ func inspect(ctx context.Context, target content.ReadOnlyStorage, d ocispec.Desc
 		return ctx.Err()
 	default:
 	}
-
+	
+	fmt.Printf("%s- target: %v\n", target)
 	fmt.Printf("%s- Media Type: %v\n", indent, d.MediaType)
 	fmt.Printf("%s  Digest: %v\n", indent, d.Digest)
 	fmt.Printf("%s  Size: %v\n", indent, d.Size)
